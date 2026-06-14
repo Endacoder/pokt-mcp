@@ -1,0 +1,73 @@
+[
+  {
+    "slug": "eth",
+    "name": "Ethereum Mainnet",
+    "chainId": 1,
+    "nativeSymbol": "ETH",
+    "protocol": "evm",
+    "aliases": ["ethereum", "mainnet", "1"],
+    "blockExplorer": "https://etherscan.io"
+  },
+  {
+    "slug": "base",
+    "name": "Base",
+    "chainId": 8453,
+    "nativeSymbol": "ETH",
+    "protocol": "evm",
+    "aliases": ["base-mainnet", "8453"],
+    "blockExplorer": "https://basescan.org"
+  },
+  {
+    "slug": "arb-one",
+    "name": "Arbitrum One",
+    "chainId": 42161,
+    "nativeSymbol": "ETH",
+    "protocol": "evm",
+    "aliases": ["arbitrum", "arb", "42161"],
+    "blockExplorer": "https://arbiscan.io"
+  },
+  {
+    "slug": "poly",
+    "name": "Polygon",
+    "chainId": 137,
+    "nativeSymbol": "MATIC",
+    "protocol": "evm",
+    "aliases": ["polygon", "matic", "137"],
+    "blockExplorer": "https://polygonscan.com"
+  },
+  {
+    "slug": "avax",
+    "name": "Avalanche C-Chain",
+    "chainId": 43114,
+    "nativeSymbol": "AVAX",
+    "protocol": "evm",
+    "aliases": ["avalanche", "43114"],
+    "blockExplorer": "https://snowtrace.io"
+  },
+  {
+    "slug": "opt",
+    "name": "Optimism",
+    "chainId": 10,
+    "nativeSymbol": "ETH",
+    "protocol": "evm",
+    "aliases": ["optimism", "10"],
+    "blockExplorer": "https://optimistic.etherscan.io"
+  },
+  {
+    "slug": "solana",
+    "name": "Solana Mainnet",
+    "nativeSymbol": "SOL",
+    "protocol": "solana",
+    "aliases": ["sol", "sol-mainnet"],
+    "blockExplorer": "https://explorer.solana.com"
+  },
+  {
+    "slug": "gnosis",
+    "name": "Gnosis Chain",
+    "chainId": 100,
+    "nativeSymbol": "xDAI",
+    "protocol": "evm",
+    "aliases": ["xdai", "100"],
+    "blockExplorer": "https://gnosisscan.io"
+  }
+]

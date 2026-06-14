@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "pokt-mcp": {
+      "command": "npx",
+      "args": ["-y", "@pokt-mcp/server"],
+      "env": {
+        "POCKET_DEFAULT_CHAIN": "eth",
+        "REQUIRE_CONFIRMATION": "true",
+        "ALLOW_LOCAL_SIGNER": "false"
+      }
+    }
+  }
+}
