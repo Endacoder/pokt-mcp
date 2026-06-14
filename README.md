@@ -100,4 +100,4 @@ See [docs/SECURITY.md](./docs/SECURITY.md).
 
 ## License
 
-MIT
+[MIT](./LICENSE)
