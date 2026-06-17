@@ -20,7 +20,7 @@ AI Client → MCP Server → Pocket Client → Pocket Portal
                        ↘ Wallet Bridge → User Wallet
 ```
 
-See [docs/DESIGN.md](./docs/DESIGN.md) for the full design, [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) for technical details, and [docs/MCP_TOOLS.md](./docs/MCP_TOOLS.md) for the tool catalog.
+See [docs/DESIGN.md](./docs/DESIGN.md) for the full design, [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) for technical details, [docs/MCP_TOOLS.md](./docs/MCP_TOOLS.md) for the tool catalog, and [docs/DEVELOPMENT_PLAN.md](./docs/DEVELOPMENT_PLAN.md) for the 4-team parallel build plan.
 
 ## Quick start (planned)
 
