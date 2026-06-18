@@ -23,6 +23,7 @@
     "@modelcontextprotocol/sdk": "^1.12.0",
     "@pokt-mcp/nl-rpc": "*",
     "@pokt-mcp/pocket-client": "*",
+    "@pokt-mcp/shared": "*",
     "@pokt-mcp/wallet-bridge": "*",
     "zod": "^3.24.0"
   },

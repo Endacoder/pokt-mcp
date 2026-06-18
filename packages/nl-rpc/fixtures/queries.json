@@ -1,0 +1,12 @@
+[
+  { "query": "latest block on Base", "expectMethod": "eth_blockNumber", "expectChain": "base" },
+  { "query": "What is the latest block on Ethereum?", "expectMethod": "eth_blockNumber", "expectChain": "eth" },
+  { "query": "balance of 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045 on polygon", "expectMethod": "eth_getBalance", "expectChain": "poly" },
+  { "query": "gas price on arbitrum", "expectMethod": "eth_gasPrice", "expectChain": "arb-one" },
+  { "query": "transaction 0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef", "expectMethod": "eth_getTransactionByHash", "expectChain": "eth" },
+  { "query": "chain id on optimism", "expectMethod": "eth_chainId", "expectChain": "opt" },
+  { "query": "receipt 0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef", "expectMethod": "eth_getTransactionReceipt", "expectChain": "eth" },
+  { "query": "block number 12345 on eth", "expectMethod": "eth_getBlockByNumber", "expectChain": "eth" },
+  { "query": "list chains", "expectMethod": "__list_chains__", "expectChain": "eth" },
+  { "query": "send 0.01 eth to 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045", "expectMethod": "eth_sendTransaction", "expectChain": "eth", "expectWrite": true }
+]

@@ -15,7 +15,10 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@pokt-mcp/pocket-client": "*"
+    "@pokt-mcp/pocket-client": "*",
+    "@pokt-mcp/shared": "*",
+    "@pokt-mcp/tx-builder": "*",
+    "viem": "^2.21.0"
   },
   "devDependencies": {
     "typescript": "^5.7.0"

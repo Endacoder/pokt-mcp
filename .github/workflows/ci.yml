@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm run typecheck
+      - run: npm run test
+      - name: Pocket integration smoke
+        run: node -e "
+          import { createPocketClient } from './packages/pocket-client/dist/index.js';
+          const pocket = createPocketClient();
+          const resp = await pocket.rpc('eth', 'eth_blockNumber', []);
+          if (!/^0x[0-9a-f]+$/i.test(resp.result)) process.exit(1);
+          console.log('eth_blockNumber ok', resp.result);
+        "

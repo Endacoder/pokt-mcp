@@ -1,0 +1,18 @@
+FROM node:20-alpine AS build
+WORKDIR /app
+COPY package.json package-lock.json ./
+COPY packages ./packages
+RUN npm ci
+RUN npm run build -w @pokt-mcp/shared \
+  && npm run build -w @pokt-mcp/pocket-client \
+  && npm run build -w @pokt-mcp/nl-rpc \
+  && npm run build -w @pokt-mcp/agent-orchestrator \
+  && npm run build -w @pokt-mcp/tx-builder \
+  && npm run build -w @pokt-mcp/api
+
+FROM node:20-alpine
+WORKDIR /app
+COPY --from=build /app /app
+ENV PORT=3001
+EXPOSE 3001
+CMD ["node", "packages/api/dist/index.js"]

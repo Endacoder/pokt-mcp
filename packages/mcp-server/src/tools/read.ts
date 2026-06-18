@@ -1,7 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ChainInfo, PocketClient } from "@pokt-mcp/pocket-client";
 import { z } from "zod";
-import { chainNotFound, textResult } from "./helpers.js";
+import { asToolServer, chainNotFound, textResult } from "./helpers.js";
 
 interface ReadToolDeps {
   pocket: PocketClient;
@@ -9,7 +9,8 @@ interface ReadToolDeps {
 }
 
 export function registerReadTools(server: McpServer, deps: ReadToolDeps) {
-  server.tool(
+  const s = asToolServer(server);
+  s.tool(
     "pocket_get_balance",
     "Get native token balance for an address",
     {
@@ -34,7 +35,7 @@ export function registerReadTools(server: McpServer, deps: ReadToolDeps) {
     },
   );
 
-  server.tool(
+  s.tool(
     "pocket_get_block_number",
     "Get the latest block number",
     { chain: z.string() },
@@ -51,7 +52,7 @@ export function registerReadTools(server: McpServer, deps: ReadToolDeps) {
     },
   );
 
-  server.tool(
+  s.tool(
     "pocket_get_transaction",
     "Get transaction details by hash",
     { chain: z.string(), hash: z.string() },
@@ -64,7 +65,7 @@ export function registerReadTools(server: McpServer, deps: ReadToolDeps) {
     },
   );
 
-  server.tool(
+  s.tool(
     "pocket_get_receipt",
     "Get transaction receipt by hash",
     { chain: z.string(), hash: z.string() },
@@ -77,7 +78,7 @@ export function registerReadTools(server: McpServer, deps: ReadToolDeps) {
     },
   );
 
-  server.tool(
+  s.tool(
     "pocket_call_contract",
     "Execute a read-only contract call (eth_call)",
     {
@@ -99,7 +100,7 @@ export function registerReadTools(server: McpServer, deps: ReadToolDeps) {
     },
   );
 
-  server.tool(
+  s.tool(
     "pocket_get_logs",
     "Fetch event logs (eth_getLogs)",
     {
@@ -122,7 +123,7 @@ export function registerReadTools(server: McpServer, deps: ReadToolDeps) {
     },
   );
 
-  server.tool(
+  s.tool(
     "pocket_estimate_gas",
     "Estimate gas for a transaction",
     {
@@ -146,7 +147,7 @@ export function registerReadTools(server: McpServer, deps: ReadToolDeps) {
     },
   );
 
-  server.tool(
+  s.tool(
     "pocket_wait_for_receipt",
     "Poll until a transaction is confirmed or timeout",
     {

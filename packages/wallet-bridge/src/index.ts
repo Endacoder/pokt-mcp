@@ -1,13 +1,19 @@
+import { buildTransfer } from "@pokt-mcp/tx-builder";
 import { createPocketClient, resolveChain } from "@pokt-mcp/pocket-client";
 import type {
   ConnectResult,
   SendResult,
   TxPreview,
   UnsignedTransaction,
-  WalletBridge,
-  WalletBridgeOptions,
   WalletStatus,
-} from "./types.js";
+} from "@pokt-mcp/shared";
+import { privateKeyToAccount } from "viem/accounts";
+import {
+  connectInjected,
+  signAndSendInjected,
+  signMessageInjected,
+} from "./injected.js";
+import type { WalletBridge, WalletBridgeOptions, EthereumProvider } from "./types.js";
 
 const DEFAULT_MAX_SEND_ETH = parseFloat(process.env.MAX_SEND_VALUE_ETH ?? "1.0");
 
@@ -20,8 +26,21 @@ export function createWalletBridge(options: WalletBridgeOptions = {}): WalletBri
   const allowed = new Set(allowedList);
   const maxSendEth = options.maxSendValueEth ?? DEFAULT_MAX_SEND_ETH;
   const allowLocal = options.allowLocalSigner ?? process.env.ALLOW_LOCAL_SIGNER === "true";
+  let provider: EthereumProvider | undefined = options.ethereumProvider;
+  let localAccount: ReturnType<typeof privateKeyToAccount> | undefined;
 
   let status: WalletStatus = { connected: false, connectionType: "none" };
+
+  if (allowLocal && options.localPrivateKey) {
+    localAccount = privateKeyToAccount(options.localPrivateKey as `0x${string}`);
+    status = {
+      connected: true,
+      address: localAccount.address,
+      connectionType: "local",
+      chainId: 1,
+      chainSlug: "eth",
+    };
+  }
 
   function assertConnected(): void {
     if (!status.connected || !status.address) {
@@ -50,30 +69,36 @@ export function createWalletBridge(options: WalletBridgeOptions = {}): WalletBri
       return { ...status };
     },
 
+    setProvider(next: EthereumProvider) {
+      provider = next;
+    },
+
     async connect(mode = "walletconnect") {
       if (mode === "injected") {
-        throw new Error("Injected wallet requires browser context — use web UI");
-      }
-
-      if (allowLocal && options.localPrivateKey) {
+        if (!provider) {
+          throw new Error("Injected wallet requires browser ethereum provider");
+        }
+        const result = await connectInjected(provider);
+        const chainIdHex = (await provider.request({ method: "eth_chainId" })) as string;
         status = {
           connected: true,
-          address: deriveAddressFromKey(options.localPrivateKey),
-          connectionType: "local",
-          chainId: 1,
-          chainSlug: "eth",
+          address: result.address,
+          chainId: parseInt(chainIdHex, 16),
+          connectionType: "injected",
         };
-        return { connected: true, address: status.address };
+        return result;
+      }
+
+      if (allowLocal && localAccount) {
+        return { connected: true, address: localAccount.address };
       }
 
       const projectId = options.walletConnectProjectId ?? process.env.WALLETCONNECT_PROJECT_ID;
       if (!projectId) {
-        throw new Error("WALLETCONNECT_PROJECT_ID required for wallet connection");
+        throw new Error("WALLETCONNECT_PROJECT_ID required — use injected mode in browser");
       }
 
-      // WalletConnect v2 session init — full impl in Phase 3
-      const uri = `wc:${crypto.randomUUID()}@2?relay-protocol=irn&symKey=placeholder`;
-      return { uri, connected: false };
+      return { uri: `wc:session@2?projectId=${projectId}`, connected: false };
     },
 
     async disconnect() {
@@ -87,42 +112,48 @@ export function createWalletBridge(options: WalletBridgeOptions = {}): WalletBri
       if (!info?.chainId) {
         throw new Error(`Cannot switch to non-EVM chain "${chainSlug}" in v1`);
       }
+      if (provider) {
+        await provider.request({
+          method: "wallet_switchEthereumChain",
+          params: [{ chainId: `0x${info.chainId.toString(16)}` }],
+        });
+      }
       status.chainId = info.chainId;
       status.chainSlug = info.slug;
     },
 
     async signMessage(message) {
       assertConnected();
-      throw new Error("USER_ACTION_REQUIRED: signMessage requires wallet popup (Phase 3)");
+      if (provider && status.address) {
+        return signMessageInjected(provider, status.address, message);
+      }
+      if (localAccount) {
+        return localAccount.signMessage({ message });
+      }
+      throw new Error("USER_ACTION_REQUIRED: no signing provider available");
     },
 
     async buildTransferPreview(tx) {
       assertChainAllowed(tx.chain);
       assertValueLimit(tx.value);
-
       const from = tx.from ?? status.address;
       if (!from) throw new Error("WALLET_NOT_CONNECTED");
 
-      const nonceResp = await pocket.rpc<string>(tx.chain, "eth_getTransactionCount", [
+      const built = await buildTransfer({
+        chain: tx.chain,
         from,
-        "latest",
-      ]);
-      const gasResp = await pocket.rpc<string>(tx.chain, "eth_estimateGas", [
-        { from, to: tx.to, value: tx.value ?? "0x0", data: tx.data ?? "0x" },
-      ]);
+        to: tx.to,
+        value: tx.value ? formatWeiHexToEthDecimal(tx.value) : "0",
+        data: tx.data,
+      });
 
-      const preview: TxPreview = {
-        summary: `Transfer to ${tx.to} on ${tx.chain}`,
-        transaction: {
-          ...tx,
-          from,
-          nonce: parseInt(nonceResp.result, 16),
-          gas: gasResp.result,
-        },
-        estimatedGas: gasResp.result,
-      };
-
-      return preview;
+      const info = resolveChain(tx.chain);
+      return {
+        summary: `Transfer to ${built.to} on ${tx.chain}`,
+        transaction: built,
+        estimatedGas: built.gas,
+        explorerUrl: info?.blockExplorer,
+      } satisfies TxPreview;
     },
 
     async signAndSend(tx, confirm) {
@@ -130,17 +161,38 @@ export function createWalletBridge(options: WalletBridgeOptions = {}): WalletBri
       assertChainAllowed(tx.chain);
       assertValueLimit(tx.value);
 
+      const preview = await this.buildTransferPreview(tx);
       if (!confirm) {
-        return this.buildTransferPreview(tx).then((p) => {
-          throw new Error(`PENDING_CONFIRMATION: ${JSON.stringify(p)}`);
+        throw new Error(`PENDING_CONFIRMATION: ${JSON.stringify(preview)}`);
+      }
+
+      const unsigned = preview.transaction;
+      const info = resolveChain(tx.chain);
+
+      if (provider && status.address) {
+        const hash = await signAndSendInjected(provider, {
+          from: unsigned.from!,
+          to: unsigned.to,
+          value: unsigned.value,
+          data: unsigned.data,
+          gas: unsigned.gas,
+          maxFeePerGas: unsigned.maxFeePerGas,
+          maxPriorityFeePerGas: unsigned.maxPriorityFeePerGas,
+          nonce: unsigned.nonce,
+          chainId: unsigned.chainId,
         });
+        return {
+          txHash: hash,
+          status: "submitted",
+          explorerUrl: info?.blockExplorer ? `${info.blockExplorer}/tx/${hash}` : undefined,
+        } satisfies SendResult;
       }
 
-      if (process.env.REQUIRE_CONFIRMATION !== "false") {
-        throw new Error("USER_ACTION_REQUIRED: wallet signature popup (Phase 3)");
+      if (localAccount && allowLocal) {
+        throw new Error("Local signer broadcast requires wallet client — use sendRawTransaction path");
       }
 
-      throw new Error("Not implemented");
+      throw new Error("USER_ACTION_REQUIRED: connect wallet to sign transaction");
     },
 
     async sendRawTransaction(chain, rawTransaction, confirm) {
@@ -157,12 +209,13 @@ export function createWalletBridge(options: WalletBridgeOptions = {}): WalletBri
         explorerUrl: info?.blockExplorer ? `${info.blockExplorer}/tx/${resp.result}` : undefined,
       };
     },
-  };
+  } as WalletBridge & { setProvider(provider: EthereumProvider): void };
 }
 
-function deriveAddressFromKey(_key: string): string {
-  // Placeholder — viem integration in Phase 3
-  return "0x0000000000000000000000000000000000000000";
+function formatWeiHexToEthDecimal(valueHex: string): string {
+  const wei = BigInt(valueHex);
+  return (Number(wei) / 1e18).toString();
 }
 
 export * from "./types.js";
+export * from "./injected.js";

@@ -1,12 +1,13 @@
 {
   "mcpServers": {
     "pokt-mcp": {
-      "command": "npx",
-      "args": ["-y", "@pokt-mcp/server"],
+      "command": "node",
+      "args": ["packages/mcp-server/dist/index.js"],
       "env": {
         "POCKET_DEFAULT_CHAIN": "eth",
         "REQUIRE_CONFIRMATION": "true",
-        "ALLOW_LOCAL_SIGNER": "false"
+        "ALLOW_LOCAL_SIGNER": "false",
+        "MAX_SEND_VALUE_ETH": "1.0"
       }
     }
   }

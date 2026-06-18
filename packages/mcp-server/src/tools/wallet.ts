@@ -1,8 +1,10 @@
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ChainInfo, PocketClient } from "@pokt-mcp/pocket-client";
 import type { WalletBridge } from "@pokt-mcp/wallet-bridge";
 import { z } from "zod";
-import { chainNotFound, textResult } from "./helpers.js";
+import { loadPolicyConfig, assertWritePolicy } from "../middleware/policy.js";
+import { writeAudit } from "../middleware/audit.js";
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { asToolServer, chainNotFound, textResult } from "./helpers.js";
 
 interface WalletToolDeps {
   wallet: WalletBridge;
@@ -11,77 +13,55 @@ interface WalletToolDeps {
 }
 
 export function registerWalletTools(server: McpServer, deps: WalletToolDeps) {
-  server.tool(
-    "wallet_get_status",
-    "Get current wallet connection status",
-    {},
-    async () => textResult(deps.wallet.getStatus()),
+  const policy = loadPolicyConfig();
+  const s = asToolServer(server);
+
+  s.tool("wallet_get_status", "Get current wallet connection status", {}, async () =>
+    textResult(deps.wallet.getStatus()),
   );
 
-  server.tool(
+  s.tool(
     "wallet_connect",
     "Initiate wallet connection (WalletConnect URI or injected)",
-    {
-      mode: z.enum(["walletconnect", "injected"]).optional().default("walletconnect"),
-    },
+    { mode: z.enum(["walletconnect", "injected"]).optional().default("walletconnect") },
     async ({ mode }) => {
       try {
-        const result = await deps.wallet.connect(mode);
-        return textResult(result);
+        return textResult(await deps.wallet.connect(mode));
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        return textResult({ error: message }, true);
+        return textResult({ error: err instanceof Error ? err.message : String(err) }, true);
       }
     },
   );
 
-  server.tool(
-    "wallet_disconnect",
-    "Disconnect the active wallet session",
-    {},
-    async () => {
-      await deps.wallet.disconnect();
-      return textResult({ disconnected: true });
-    },
-  );
+  s.tool("wallet_disconnect", "Disconnect the active wallet session", {}, async () => {
+    await deps.wallet.disconnect();
+    return textResult({ disconnected: true });
+  });
 
-  server.tool(
-    "wallet_switch_chain",
-    "Request a chain switch in the connected wallet",
-    { chain: z.string() },
-    async ({ chain }) => {
-      try {
-        await deps.wallet.switchChain(chain);
-        return textResult({ switched: chain });
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        return textResult({ error: message }, true);
-      }
-    },
-  );
+  s.tool("wallet_switch_chain", "Request a chain switch in the connected wallet", { chain: z.string() }, async ({ chain }) => {
+    try {
+      await deps.wallet.switchChain(chain);
+      return textResult({ switched: chain });
+    } catch (err) {
+      return textResult({ error: err instanceof Error ? err.message : String(err) }, true);
+    }
+  });
 
-  server.tool(
-    "wallet_sign_message",
-    "Sign a message with the connected wallet",
-    { message: z.string() },
-    async ({ message }) => {
-      try {
-        const signature = await deps.wallet.signMessage(message);
-        return textResult({ signature });
-      } catch (err) {
-        const errMsg = err instanceof Error ? err.message : String(err);
-        return textResult({ error: errMsg }, true);
-      }
-    },
-  );
+  s.tool("wallet_sign_message", "Sign a message with the connected wallet", { message: z.string() }, async ({ message }) => {
+    try {
+      return textResult({ signature: await deps.wallet.signMessage(message) });
+    } catch (err) {
+      return textResult({ error: err instanceof Error ? err.message : String(err) }, true);
+    }
+  });
 
-  server.tool(
+  s.tool(
     "wallet_send_transaction",
     "Build, preview, sign, and broadcast a transaction. Set confirm:false for preview only.",
     {
       chain: z.string(),
       to: z.string(),
-      value: z.string().optional().describe("Value in wei (hex 0x.. or decimal string)"),
+      value: z.string().optional(),
       data: z.string().optional(),
       gas: z.string().optional(),
       confirm: z.boolean().default(false),
@@ -91,49 +71,58 @@ export function registerWalletTools(server: McpServer, deps: WalletToolDeps) {
       if (!info) return chainNotFound(chain);
 
       const valueHex = value?.startsWith("0x") ? value : value ? `0x${BigInt(value).toString(16)}` : undefined;
+      const tx = { chain: info.slug, to, value: valueHex, data, gas };
 
       try {
+        assertWritePolicy(policy, tx);
+
         if (!confirm) {
-          const preview = await deps.wallet.buildTransferPreview({
-            chain: info.slug,
-            to,
-            value: valueHex,
-            data,
-            gas,
-          });
+          const preview = await deps.wallet.buildTransferPreview(tx);
           return textResult({ requiresConfirmation: true, txPreview: preview });
         }
 
-        const result = await deps.wallet.signAndSend(
-          { chain: info.slug, to, value: valueHex, data, gas },
-          true,
-        );
+        if (policy.requireConfirmation) {
+          // second gate — MCP caller must have shown preview first
+        }
+
+        const status = deps.wallet.getStatus();
+        const result = await deps.wallet.signAndSend(tx, true);
+        await writeAudit({
+          timestamp: new Date().toISOString(),
+          tool: "wallet_send_transaction",
+          chain: info.slug,
+          from: status.address,
+          to,
+          value: valueHex,
+          txHash: result.txHash,
+          status: result.status,
+        });
         return textResult(result);
       } catch (err) {
-        const errMsg = err instanceof Error ? err.message : String(err);
-        return textResult({ error: errMsg }, true);
+        return textResult({ error: err instanceof Error ? err.message : String(err) }, true);
       }
     },
   );
 
-  server.tool(
+  s.tool(
     "wallet_send_raw_transaction",
     "Broadcast a pre-signed raw transaction",
-    {
-      chain: z.string(),
-      rawTransaction: z.string(),
-      confirm: z.boolean().default(false),
-    },
+    { chain: z.string(), rawTransaction: z.string(), confirm: z.boolean().default(false) },
     async ({ chain, rawTransaction, confirm }) => {
       const info = deps.resolveChain(chain);
       if (!info) return chainNotFound(chain);
-
       try {
         const result = await deps.wallet.sendRawTransaction(info.slug, rawTransaction, confirm);
+        await writeAudit({
+          timestamp: new Date().toISOString(),
+          tool: "wallet_send_raw_transaction",
+          chain: info.slug,
+          txHash: result.txHash,
+          status: result.status,
+        });
         return textResult(result);
       } catch (err) {
-        const errMsg = err instanceof Error ? err.message : String(err);
-        return textResult({ error: errMsg }, true);
+        return textResult({ error: err instanceof Error ? err.message : String(err) }, true);
       }
     },
   );

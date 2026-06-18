@@ -12,10 +12,12 @@
   },
   "scripts": {
     "build": "tsc",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
-    "@pokt-mcp/pocket-client": "*"
+    "@pokt-mcp/pocket-client": "*",
+    "@pokt-mcp/shared": "*"
   },
   "devDependencies": {
     "typescript": "^5.7.0"

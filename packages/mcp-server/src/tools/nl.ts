@@ -1,16 +1,17 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { NlRpcEngine } from "@pokt-mcp/nl-rpc";
-import type { PocketClient } from "@pokt-mcp/pocket-client";
+import { executeIntent } from "@pokt-mcp/nl-rpc";
 import { z } from "zod";
-import { textResult } from "./helpers.js";
+import { asToolServer, textResult } from "./helpers.js";
 
 interface NlToolDeps {
   nlRpc: NlRpcEngine;
-  pocket: PocketClient;
+  pocket: import("@pokt-mcp/pocket-client").PocketClient;
 }
 
 export function registerNlTools(server: McpServer, deps: NlToolDeps) {
-  server.tool(
+  const s = asToolServer(server);
+  s.tool(
     "pocket_query_nl",
     "Parse a natural language blockchain query and execute read intents or prepare write intents for confirmation",
     {
@@ -35,13 +36,8 @@ export function registerNlTools(server: McpServer, deps: NlToolDeps) {
           return textResult({ intent: parsed.intent });
         }
 
-        const resp = await deps.pocket.rpc(
-          parsed.intent.chain,
-          parsed.intent.method,
-          parsed.intent.params,
-        );
-
-        return textResult({ intent: parsed.intent, result: resp.result, meta: resp.meta });
+        const output = await executeIntent(deps.pocket, parsed.intent);
+        return textResult({ intent: parsed.intent, output });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         return textResult({ error: message }, true);
@@ -49,7 +45,7 @@ export function registerNlTools(server: McpServer, deps: NlToolDeps) {
     },
   );
 
-  server.tool(
+  s.tool(
     "pocket_explain_rpc",
     "Explain what an RPC call would do without executing it",
     {

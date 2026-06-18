@@ -1,0 +1,180 @@
+openapi: 3.0.3
+info:
+  title: pokt-mcp API
+  version: 0.1.0
+  description: REST + SSE API for pokt-mcp web demo
+servers:
+  - url: http://localhost:3001
+paths:
+  /health:
+    get:
+      summary: Health check
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+  /chains:
+    get:
+      summary: List Pocket chains
+      responses:
+        "200":
+          description: Chain list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  chains:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ChainInfo"
+  /chat:
+    post:
+      summary: Chat with SSE streaming response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChatRequest"
+      responses:
+        "200":
+          description: SSE stream of chat events
+          content:
+            text/event-stream:
+              schema:
+                type: string
+  /rpc:
+    post:
+      summary: Execute JSON-RPC via Pocket
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RpcRequest"
+      responses:
+        "200":
+          description: RPC result
+  /wallet/status:
+    get:
+      summary: Wallet session status
+      responses:
+        "200":
+          description: Wallet status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WalletStatus"
+  /wallet/tx/preview:
+    post:
+      summary: Build transaction preview
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WalletTxPreviewRequest"
+      responses:
+        "200":
+          description: Transaction preview
+  /wallet/tx/broadcast:
+    post:
+      summary: Broadcast signed raw transaction
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WalletTxBroadcastRequest"
+      responses:
+        "200":
+          description: Broadcast result
+components:
+  schemas:
+    ChainInfo:
+      type: object
+      properties:
+        slug:
+          type: string
+        name:
+          type: string
+        chainId:
+          type: integer
+        nativeSymbol:
+          type: string
+        protocol:
+          type: string
+        endpoint:
+          type: string
+    ChatRequest:
+      type: object
+      required:
+        - message
+      properties:
+        message:
+          type: string
+        chain:
+          type: string
+        sessionId:
+          type: string
+    RpcRequest:
+      type: object
+      required:
+        - chain
+        - method
+      properties:
+        chain:
+          type: string
+        method:
+          type: string
+        params:
+          type: array
+          items: {}
+    WalletStatus:
+      type: object
+      properties:
+        connected:
+          type: boolean
+        address:
+          type: string
+        chainId:
+          type: integer
+        chainSlug:
+          type: string
+        connectionType:
+          type: string
+    WalletTxPreviewRequest:
+      type: object
+      required:
+        - chain
+        - from
+        - to
+      properties:
+        chain:
+          type: string
+        from:
+          type: string
+        to:
+          type: string
+        value:
+          type: string
+        data:
+          type: string
+    WalletTxBroadcastRequest:
+      type: object
+      required:
+        - chain
+        - rawTransaction
+      properties:
+        chain:
+          type: string
+        rawTransaction:
+          type: string

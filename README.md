@@ -2,101 +2,82 @@
 
 **AI & Agents — MCP × Pocket × Natural Language RPC**
 
-MCP server and tooling that lets AI agents query 60+ blockchains via [Pocket Network](https://pocket.network)'s decentralized API portal, translate natural language into validated JSON-RPC calls, connect wallets, and send transactions — with full RPC coverage and safe-by-default write guardrails.
+MCP server and web demo that lets AI agents query 20+ blockchains via [Pocket Network](https://pocket.network)'s decentralized API portal, translate natural language into validated JSON-RPC calls, connect wallets, and send transactions.
 
-## What it does
-
-- **MCP tools** for Cursor, Claude Desktop, and custom agents
-- **Pocket-native routing** to `https://{chain-slug}.api.pocket.network`
-- **Natural language RPC** — "What's the ETH balance of vitalik.eth?" → validated `eth_getBalance`
-- **Full JSON-RPC** via `pocket_rpc_call` for any method
-- **Wallet connect & send** — WalletConnect / injected wallet, user signs, agent broadcasts
-
-## Architecture
-
-```
-AI Client → MCP Server → Pocket Client → Pocket Portal
-                       ↘ NL-RPC (intent parsing)
-                       ↘ Wallet Bridge → User Wallet
-```
-
-See [docs/DESIGN.md](./docs/DESIGN.md) for the full design, [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) for technical details, [docs/MCP_TOOLS.md](./docs/MCP_TOOLS.md) for the tool catalog, and [docs/DEVELOPMENT_PLAN.md](./docs/DEVELOPMENT_PLAN.md) for the 4-team parallel build plan.
-
-## Quick start (planned)
+## Quick start
 
 ```bash
 npm install
 npm run build
+npm run test
+```
+
+### Run locally
+
+```bash
+# Terminal 1 — API (port 3001)
+node packages/api/dist/index.js
+
+# Terminal 2 — Web UI (port 3000)
+npm run dev -w @pokt-mcp/web
+
+# Terminal 3 — MCP server (stdio for Cursor)
+node packages/mcp-server/dist/index.js
+```
+
+Or use Docker:
+
+```bash
+docker-compose up --build
+./scripts/smoke-test.sh
 ```
 
 ### Cursor MCP config
 
-Copy [examples/cursor-mcp.json](./examples/cursor-mcp.json) into your Cursor MCP settings:
+Copy [examples/cursor-mcp.json](./examples/cursor-mcp.json) into Cursor MCP settings.
 
-```json
-{
-  "mcpServers": {
-    "pokt-mcp": {
-      "command": "npx",
-      "args": ["-y", "@pokt-mcp/server"],
-      "env": {
-        "POCKET_DEFAULT_CHAIN": "eth"
-      }
-    }
-  }
-}
+## Architecture
+
 ```
-
-### Example agent prompts
-
-| Prompt | Tool used |
-|--------|-------------|
-| "List chains available on Pocket" | `pocket_list_chains` |
-| "Latest block on Base" | `pocket_query_nl` |
-| "Call eth_getCode on 0x… on Ethereum" | `pocket_rpc_call` |
-| "Send 0.01 ETH to 0x…" | `wallet_send_transaction` (with confirmation) |
+Web UI → API (Hono) → Agent + NL-RPC → Pocket Client → Pocket Portal
+Cursor → MCP Server (stdio/SSE) → Pocket Client / Wallet Bridge
+Browser Wallet → sign tx → broadcast via Pocket
+```
 
 ## Packages
 
 | Package | Description |
 |---------|-------------|
-| `@pokt-mcp/pocket-client` | Pocket JSON-RPC HTTP client + chain registry |
-| `@pokt-mcp/nl-rpc` | Natural language → RpcIntent parser |
-| `@pokt-mcp/wallet-bridge` | WalletConnect + transaction signing |
-| `@pokt-mcp/server` | MCP tool server |
+| `@pokt-mcp/shared` | Shared types + OpenAPI spec |
+| `@pokt-mcp/pocket-client` | Pocket JSON-RPC client + 20 chain registry |
+| `@pokt-mcp/tx-builder` | viem transaction builder |
+| `@pokt-mcp/wallet-bridge` | Injected wallet + raw tx broadcast |
+| `@pokt-mcp/nl-rpc` | Natural language → RpcIntent |
+| `@pokt-mcp/agent-orchestrator` | Chat agent loop (template-only) |
+| `@pokt-mcp/server` | MCP tool server (stdio + SSE) |
+| `@pokt-mcp/api` | REST + SSE API |
+| `@pokt-mcp/web` | Next.js chat demo |
+
+## Example prompts
+
+| Prompt | Result |
+|--------|--------|
+| "List chains available on Pocket" | Chain registry |
+| "Latest block on Base" | `eth_blockNumber` via Pocket |
+| "Balance of 0x… on polygon" | `eth_getBalance` |
+| "Send 0.01 ETH to 0x…" | Tx preview → wallet confirm |
 
 ## Configuration
 
-```bash
-POCKET_DEFAULT_CHAIN=eth
-POCKET_PORTAL_BASE=https://api.pocket.network
-WALLETCONNECT_PROJECT_ID=...
-MAX_SEND_VALUE_ETH=1.0
-REQUIRE_CONFIRMATION=true
-ALLOW_LOCAL_SIGNER=false
-```
+See [.env.example](./.env.example).
 
-## Security
+## Docs
 
-Read operations are open. All writes require explicit user confirmation and wallet signature. Private keys never enter the LLM context.
-
-See [docs/SECURITY.md](./docs/SECURITY.md).
-
-## Implementation status
-
-| Phase | Status |
-|-------|--------|
-| Design & architecture | ✅ Complete |
-| Pocket client + registry | 🚧 Scaffold |
-| MCP server (read tools) | 🚧 Scaffold |
-| Natural language RPC | 📋 Planned |
-| Wallet connect & send | 📋 Planned |
-
-## References
-
-- [Pocket API Portal](https://docs.pocket.network/foundation/api-portal/)
-- [Supported Chains](https://docs.pocket.network/developers/supported-chains/)
-- [Model Context Protocol](https://modelcontextprotocol.io)
+- [DESIGN.md](./docs/DESIGN.md)
+- [ARCHITECTURE.md](./docs/ARCHITECTURE.md)
+- [MCP_TOOLS.md](./docs/MCP_TOOLS.md)
+- [DEVELOPMENT_PLAN.md](./docs/DEVELOPMENT_PLAN.md)
+- [SECURITY.md](./docs/SECURITY.md)
 
 ## License
 

@@ -1,7 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ChainInfo } from "@pokt-mcp/pocket-client";
 import { z } from "zod";
-import { chainNotFound, textResult } from "./helpers.js";
+import { asToolServer, chainNotFound, textResult } from "./helpers.js";
 
 interface DiscoveryDeps {
   listChains: () => ChainInfo[];
@@ -27,14 +27,15 @@ const EVM_METHODS = [
 ];
 
 export function registerDiscoveryTools(server: McpServer, deps: DiscoveryDeps) {
-  server.tool(
+  const s = asToolServer(server);
+  s.tool(
     "pocket_list_chains",
     "List all blockchain networks available via Pocket Network portal",
     {},
     async () => textResult({ chains: deps.listChains() }),
   );
 
-  server.tool(
+  s.tool(
     "pocket_get_chain",
     "Get metadata for a single chain by slug or alias",
     { chain: z.string().describe("Chain slug or alias (e.g. eth, polygon, 137)") },
@@ -45,7 +46,7 @@ export function registerDiscoveryTools(server: McpServer, deps: DiscoveryDeps) {
     },
   );
 
-  server.tool(
+  s.tool(
     "pocket_list_methods",
     "List common RPC methods for a chain's protocol",
     { chain: z.string() },

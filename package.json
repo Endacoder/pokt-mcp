@@ -4,11 +4,15 @@
   "private": true,
   "description": "AI & Agents — MCP integrations for Pocket Network RPC, natural language queries, and wallet connect/send",
   "workspaces": [
-    "packages/*"
+    "packages/*",
+    "apps/*"
   ],
   "scripts": {
-    "build": "npm run build -w @pokt-mcp/pocket-client && npm run build -w @pokt-mcp/nl-rpc && npm run build -w @pokt-mcp/wallet-bridge && npm run build -w @pokt-mcp/server",
-    "dev": "npm run dev -w @pokt-mcp/server",
+    "build": "npm run build -w @pokt-mcp/shared && npm run build -w @pokt-mcp/pocket-client && npm run build -w @pokt-mcp/tx-builder && npm run build -w @pokt-mcp/nl-rpc && npm run build -w @pokt-mcp/wallet-bridge && npm run build -w @pokt-mcp/agent-orchestrator && npm run build -w @pokt-mcp/server && npm run build -w @pokt-mcp/api",
+    "dev": "npm run dev -w @pokt-mcp/api",
+    "dev:mcp": "npm run dev -w @pokt-mcp/server",
+    "dev:web": "npm run dev -w @pokt-mcp/web",
+    "test": "npm run test --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present"
   },
   "engines": {

@@ -1,4 +1,4 @@
-import type { ChainInfo } from "../types.js";
+import type { ChainInfo } from "@pokt-mcp/shared";
 import chains from "./chains.json" with { type: "json" };
 
 const PORTAL_BASE = process.env.POCKET_PORTAL_BASE ?? "https://api.pocket.network";
