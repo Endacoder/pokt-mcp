@@ -1,7 +1,8 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ChainInfo, PocketClient } from "@pokt-mcp/pocket-client";
 import { z } from "zod";
-import { chainNotFound, textResult } from "./helpers.js";
+import { getErc20TokenBalance, enrichTxLookupOutput } from "@pokt-mcp/nl-rpc";
+import { asToolServer, chainNotFound, textResult } from "./helpers.js";
 
 interface ReadToolDeps {
   pocket: PocketClient;
@@ -9,9 +10,10 @@ interface ReadToolDeps {
 }
 
 export function registerReadTools(server: McpServer, deps: ReadToolDeps) {
-  server.tool(
+  const s = asToolServer(server);
+  s.tool(
     "pocket_get_balance",
-    "Get native token balance for an address",
+    "Shortcut: get native balance when you have chain + address. Prefer pocket_query for natural language.",
     {
       chain: z.string(),
       address: z.string(),
@@ -34,9 +36,9 @@ export function registerReadTools(server: McpServer, deps: ReadToolDeps) {
     },
   );
 
-  server.tool(
+  s.tool(
     "pocket_get_block_number",
-    "Get the latest block number",
+    "Shortcut: get latest block number. Prefer pocket_query for natural language.",
     { chain: z.string() },
     async ({ chain }) => {
       const info = deps.resolveChain(chain);
@@ -51,7 +53,7 @@ export function registerReadTools(server: McpServer, deps: ReadToolDeps) {
     },
   );
 
-  server.tool(
+  s.tool(
     "pocket_get_transaction",
     "Get transaction details by hash",
     { chain: z.string(), hash: z.string() },
@@ -60,11 +62,16 @@ export function registerReadTools(server: McpServer, deps: ReadToolDeps) {
       if (!info) return chainNotFound(chain);
 
       const resp = await deps.pocket.rpc(info.slug, "eth_getTransactionByHash", [hash]);
-      return textResult({ result: resp.result, meta: resp.meta });
+      return textResult(
+        enrichTxLookupOutput("eth_getTransactionByHash", info.slug, [hash], {
+          result: resp.result,
+          meta: resp.meta,
+        }),
+      );
     },
   );
 
-  server.tool(
+  s.tool(
     "pocket_get_receipt",
     "Get transaction receipt by hash",
     { chain: z.string(), hash: z.string() },
@@ -73,11 +80,16 @@ export function registerReadTools(server: McpServer, deps: ReadToolDeps) {
       if (!info) return chainNotFound(chain);
 
       const resp = await deps.pocket.rpc(info.slug, "eth_getTransactionReceipt", [hash]);
-      return textResult({ result: resp.result, meta: resp.meta });
+      return textResult(
+        enrichTxLookupOutput("eth_getTransactionReceipt", info.slug, [hash], {
+          result: resp.result,
+          meta: resp.meta,
+        }),
+      );
     },
   );
 
-  server.tool(
+  s.tool(
     "pocket_call_contract",
     "Execute a read-only contract call (eth_call)",
     {
@@ -99,7 +111,7 @@ export function registerReadTools(server: McpServer, deps: ReadToolDeps) {
     },
   );
 
-  server.tool(
+  s.tool(
     "pocket_get_logs",
     "Fetch event logs (eth_getLogs)",
     {
@@ -122,7 +134,7 @@ export function registerReadTools(server: McpServer, deps: ReadToolDeps) {
     },
   );
 
-  server.tool(
+  s.tool(
     "pocket_estimate_gas",
     "Estimate gas for a transaction",
     {
@@ -146,7 +158,52 @@ export function registerReadTools(server: McpServer, deps: ReadToolDeps) {
     },
   );
 
-  server.tool(
+
+  s.tool(
+    "pocket_get_nonce",
+    "Get transaction count (nonce) for an address. Prefer pocket_query for natural language.",
+    {
+      chain: z.string(),
+      address: z.string(),
+      block: z.string().optional().default("latest"),
+    },
+    async ({ chain, address, block }) => {
+      const info = deps.resolveChain(chain);
+      if (!info) return chainNotFound(chain);
+
+      const resp = await deps.pocket.rpc(info.slug, "eth_getTransactionCount", [address, block]);
+      return textResult({
+        address,
+        nonce: parseInt(resp.result as string, 16),
+        nonceHex: resp.result,
+        meta: resp.meta,
+      });
+    },
+  );
+
+  s.tool(
+    "pocket_get_token_balance",
+    "Get ERC-20 token balance for an address. Prefer pocket_query for natural language.",
+    {
+      chain: z.string(),
+      token: z.string().describe("Token symbol (USDC, USDT, DAI) or contract address"),
+      address: z.string(),
+    },
+    async ({ chain, token, address }) => {
+      const info = deps.resolveChain(chain);
+      if (!info) return chainNotFound(chain);
+
+      try {
+        const result = await getErc20TokenBalance(deps.pocket, info.slug, token, address);
+        return textResult(result);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return textResult({ error: message }, true);
+      }
+    },
+  );
+
+  s.tool(
     "pocket_wait_for_receipt",
     "Poll until a transaction is confirmed or timeout",
     {

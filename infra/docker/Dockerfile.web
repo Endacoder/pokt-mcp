@@ -1,0 +1,25 @@
+FROM node:20-alpine AS build
+WORKDIR /app
+ARG NEXT_PUBLIC_API_URL=/api
+ARG NEXT_PUBLIC_WC_PROJECT_ID=
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_WC_PROJECT_ID=$NEXT_PUBLIC_WC_PROJECT_ID
+COPY package.json package-lock.json ./
+COPY scripts ./scripts
+COPY apps/web ./apps/web
+COPY packages/shared ./packages/shared
+RUN npm ci
+RUN npm run build -w @pokt-mcp/shared
+WORKDIR /app/apps/web
+RUN npm run build
+
+FROM node:20-alpine
+WORKDIR /app
+ENV NODE_ENV=production
+ENV PORT=5000
+ENV HOSTNAME=0.0.0.0
+COPY --from=build /app/apps/web/.next/standalone ./
+COPY --from=build /app/apps/web/.next/static ./apps/web/.next/static
+COPY --from=build /app/apps/web/public ./apps/web/public
+EXPOSE 5000
+CMD ["node", "apps/web/server.js"]

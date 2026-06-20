@@ -15,7 +15,11 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@pokt-mcp/pocket-client": "*"
+    "@pokt-mcp/pocket-client": "*",
+    "@pokt-mcp/shared": "*",
+    "@pokt-mcp/tx-builder": "*",
+    "@walletconnect/ethereum-provider": "^2.17.0",
+    "viem": "^2.21.0"
   },
   "devDependencies": {
     "typescript": "^5.7.0"

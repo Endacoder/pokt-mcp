@@ -171,3 +171,18 @@ Rules:
 - [ ] HTTPS for SSE transport
 - [ ] No private keys in environment on server
 - [ ] Agent system prompt includes security rules
+
+
+---
+
+## Third-party MCP servers
+
+pokt-mcp does not execute token swaps. Users may configure **separate third-party MCP servers** (e.g. Intent MCP by Metalift) for swap flows.
+
+| Concern | pokt-mcp | Third-party MCP |
+|---------|----------|-----------------|
+| Trust boundary | This repo + Pocket RPC | External provider terms |
+| API keys | Pocket / LLM / WalletConnect | Provider-specific (e.g. `INTENT_MCP_API_KEY`) |
+| Write operations | Native sends via wallet bridge | Swaps, intents per provider tools |
+
+Review each third-party server's security model before connecting a wallet. pokt-mcp swap execution queries return an error rather than proxying to third-party servers.

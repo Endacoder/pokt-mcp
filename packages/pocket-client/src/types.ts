@@ -1,61 +1,30 @@
-export type ChainProtocol = "evm" | "solana" | "cosmos";
-
-export interface ChainInfo {
-  slug: string;
-  name: string;
-  chainId?: number;
-  nativeSymbol: string;
-  protocol: ChainProtocol;
-  endpoint: string;
-  aliases: string[];
-  blockExplorer?: string;
-}
-
-export interface RpcCall {
-  method: string;
-  params?: unknown[];
-}
-
-export interface RpcResult<T = unknown> {
-  id: number | string;
-  result?: T;
-  error?: RpcError;
-}
-
-export interface RpcError {
-  code: number;
-  message: string;
-  data?: unknown;
-}
-
-export interface RpcMeta {
-  chain: string;
-  method: string;
-  latencyMs: number;
-  endpoint: string;
-}
-
-export interface RpcResponse<T = unknown> {
-  result: T;
-  meta: RpcMeta;
-}
+export type {
+  ChainInfo,
+  ChainProtocol,
+  RpcCall,
+  RpcError,
+  RpcMeta,
+  RpcResponse,
+  RpcResult,
+} from "@pokt-mcp/shared";
 
 export interface PocketClientOptions {
   portalBase?: string;
   fallbackRpcUrls?: Record<string, string>;
   timeoutMs?: number;
   maxRetries?: number;
+  cacheTtlMs?: number;
 }
 
 export interface PocketClient {
-  rpc<T>(chain: string, method: string, params?: unknown[]): Promise<RpcResponse<T>>;
-  broadcast<T>(chain: string, rawTransaction: string): Promise<RpcResponse<T>>;
-  batch<T>(chain: string, calls: RpcCall[]): Promise<RpcResult<T>[]>;
+  rpc<T>(chain: string, method: string, params?: unknown[]): Promise<import("@pokt-mcp/shared").RpcResponse<T>>;
+  broadcast<T>(chain: string, rawTransaction: string): Promise<import("@pokt-mcp/shared").RpcResponse<T>>;
+  batch<T>(chain: string, calls: import("@pokt-mcp/shared").RpcCall[]): Promise<import("@pokt-mcp/shared").RpcResult<T>[]>;
   getEndpoint(chain: string): string;
 }
 
 export interface ChainRegistry {
-  list(): ChainInfo[];
-  get(slug: string): ChainInfo | undefined;
-  resolve(alias: string): ChainInfo | undefined;
+  list(): import("@pokt-mcp/shared").ChainInfo[];
+  get(slug: string): import("@pokt-mcp/shared").ChainInfo | undefined;
+  resolve(alias: string): import("@pokt-mcp/shared").ChainInfo | undefined;
 }

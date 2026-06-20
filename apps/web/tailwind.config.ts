@@ -1,0 +1,73 @@
+/** @type {import('tailwindcss').Config} */
+export default {
+  content: ["./app/**/*.{js,ts,jsx,tsx}", "./components/**/*.{js,ts,jsx,tsx}"],
+  theme: {
+    extend: {
+      fontFamily: {
+        sans: [
+          "Inter",
+          "ui-sans-serif",
+          "system-ui",
+          "-apple-system",
+          "Segoe UI",
+          "Roboto",
+          "Helvetica Neue",
+          "Arial",
+          "sans-serif",
+        ],
+      },
+      colors: {
+        pocket: {
+          bg: "var(--pocket-bg)",
+          chat: "var(--pocket-chat)",
+          surface: "var(--pocket-surface)",
+          elevated: "var(--pocket-elevated)",
+          foreground: "var(--pocket-foreground)",
+          dark: "var(--mcp-dark)",
+          accent: "var(--pocket-accent)",
+          "accent-hover": "var(--pocket-accent-hover)",
+          cyan: "var(--pocket-cyan)",
+          violet: "var(--agent-violet)",
+          "violet-dim": "var(--agent-violet-dim)",
+          "accent-dim": "var(--pocket-accent-dim)",
+          "cyan-dim": "var(--pocket-cyan-dim)",
+          cta: "var(--pocket-accent)",
+          "cta-hover": "var(--pocket-accent-hover)",
+          "cta-text": "#FFFFFF",
+          muted: "var(--pocket-muted)",
+          "muted-light": "var(--pocket-muted-light)",
+          "muted-dark": "var(--pocket-muted-light)",
+          border: "var(--pocket-border)",
+          "border-dark": "rgba(255, 255, 255, 0.08)",
+          success: "var(--pocket-success)",
+          "success-surface": "var(--pocket-success-surface)",
+          "success-border": "var(--pocket-success-border)",
+          warning: "var(--pocket-warning)",
+          "warning-surface": "var(--pocket-warning-surface)",
+          "warning-border": "var(--pocket-warning-border)",
+          "warning-text": "var(--pocket-warning-text)",
+          error: "var(--pocket-error)",
+          "error-surface": "var(--pocket-error-surface)",
+          "error-border": "var(--pocket-error-border)",
+          "error-text": "var(--pocket-error-text)",
+        },
+      },
+      backgroundImage: {
+        "pocket-gradient": "linear-gradient(135deg, var(--mcp-blue) 0%, var(--mcp-cyan) 100%)",
+        "pocket-gradient-subtle":
+          "linear-gradient(135deg, var(--pocket-accent-dim) 0%, var(--pocket-cyan-dim) 100%)",
+        "pocket-gradient-dark":
+          "linear-gradient(135deg, color-mix(in srgb, var(--mcp-blue) 22%, transparent) 0%, color-mix(in srgb, var(--mcp-cyan) 10%, transparent) 100%)",
+      },
+      boxShadow: {
+        pocket: "0 1px 3px rgba(0, 0, 0, 0.08), 0 0 0 1px var(--pocket-border)",
+        "pocket-md": "0 4px 14px rgba(0, 0, 0, 0.1), 0 0 0 1px var(--pocket-border)",
+        "pocket-lg": "0 8px 28px rgba(0, 0, 0, 0.12), 0 0 0 1px var(--pocket-border)",
+        "pocket-glow": "0 0 0 3px var(--pocket-accent-dim)",
+        "pocket-accent": "var(--bubble-user-shadow)",
+        "pocket-cyan": "0 4px 16px color-mix(in srgb, var(--mcp-cyan) 25%, transparent)",
+      },
+    },
+  },
+  plugins: [require("@tailwindcss/typography")],
+};

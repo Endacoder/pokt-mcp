@@ -1,0 +1,106 @@
+# Production stack: Cloudflare Tunnel only public ingress (no host ports).
+# Usage: ./scripts/setup-cloudflare-tunnel.sh && docker compose -f docker-compose.prod.yml up -d --build
+
+name: pokt-mcp-prod
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.api
+    container_name: pokt-mcp-api
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      - PORT=5001
+      - HOST=0.0.0.0
+      - POCKET_DEFAULT_CHAIN=eth
+      - REQUIRE_CONFIRMATION=true
+      - MAX_SEND_VALUE_ETH=1.0
+      - WALLET_ALLOWED_CHAINS=eth,base,arb-one,poly,opt,avax
+      - RPC_METHOD_DENYLIST=personal_importRawKey,eth_sign
+      - ALLOW_LOCAL_SIGNER=false
+      - WALLETCONNECT_PROJECT_ID=${WALLETCONNECT_PROJECT_ID:-}
+      - FEATURE_NL_LLM=${FEATURE_NL_LLM:-true}
+      - FEATURE_AGENT_LOOP=${FEATURE_AGENT_LOOP:-false}
+      - AGENT_MAX_STEPS=${AGENT_MAX_STEPS:-8}
+      - LLM_PROVIDER=${LLM_PROVIDER:-}
+      - LLM_MODEL=${LLM_MODEL:-gpt-4o-mini}
+      - LITELLM_BASE_URL=${LITELLM_BASE_URL:-http://host.docker.internal:4000}
+      - LITELLM_API_KEY=${LITELLM_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - RATE_LIMIT_ENABLED=${RATE_LIMIT_ENABLED:-true}
+      - RATE_LIMIT_WINDOW_MS=${RATE_LIMIT_WINDOW_MS:-60000}
+      - RATE_LIMIT_REQUESTS_PER_MINUTE=${RATE_LIMIT_REQUESTS_PER_MINUTE:-60}
+      - RATE_LIMIT_CHAT_PER_MINUTE=${RATE_LIMIT_CHAT_PER_MINUTE:-15}
+      - INTERNAL_API_KEY=${INTERNAL_API_KEY:-}
+      - SESSION_SIGNING_SECRET=${SESSION_SIGNING_SECRET:-}
+      - SESSION_TOKEN_TTL_MS=${SESSION_TOKEN_TTL_MS:-86400000}
+      - PUBLIC_APP_URL=${PUBLIC_APP_URL:-https://pokt.metalift.ai}
+      - INTENT_MCP_ENABLED=${INTENT_MCP_ENABLED:-true}
+      - INTENT_MCP_API_KEY=${INTENT_MCP_API_KEY:-}
+      - INTENT_MCP_API_URL=${INTENT_MCP_API_URL:-}
+      - INTENT_MCP_REMOTE_URL=${INTENT_MCP_REMOTE_URL:-https://mcp.metalift.ai/mcp}
+    networks:
+      - pokt_app
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:5001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  web:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.web
+      args:
+        NEXT_PUBLIC_API_URL: /api
+        NEXT_PUBLIC_WC_PROJECT_ID: ${WALLETCONNECT_PROJECT_ID:-}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:5000/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    environment:
+      - NEXT_PUBLIC_API_URL=/api
+      - NEXT_PUBLIC_WC_PROJECT_ID=${WALLETCONNECT_PROJECT_ID:-}
+      - WALLETCONNECT_PROJECT_ID=${WALLETCONNECT_PROJECT_ID:-}
+      - API_INTERNAL_URL=http://api:5001
+      - INTERNAL_API_KEY=${INTERNAL_API_KEY:-}
+      - SESSION_SIGNING_SECRET=${SESSION_SIGNING_SECRET:-}
+      - SESSION_TOKEN_TTL_MS=${SESSION_TOKEN_TTL_MS:-86400000}
+      - PUBLIC_APP_URL=${PUBLIC_APP_URL:-https://pokt.metalift.ai}
+      - INTENT_MCP_ENABLED=${INTENT_MCP_ENABLED:-true}
+      - INTENT_MCP_API_KEY=${INTENT_MCP_API_KEY:-}
+      - INTENT_MCP_REMOTE_URL=${INTENT_MCP_REMOTE_URL:-https://mcp.metalift.ai/mcp}
+      - INTENT_MCP_COMMAND=${INTENT_MCP_COMMAND:-}
+      - INTENT_MCP_ARGS=${INTENT_MCP_ARGS:-}
+      - NEXT_PUBLIC_INTENT_MCP_SSE_URL=${NEXT_PUBLIC_INTENT_MCP_SSE_URL:-}
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - pokt_app
+
+  cloudflared:
+    image: cloudflare/cloudflared:2025.2.0
+    command: tunnel run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
+    depends_on:
+      web:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - pokt_app
+
+networks:
+  pokt_app:
+    driver: bridge

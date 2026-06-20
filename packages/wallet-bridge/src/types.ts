@@ -1,65 +1,34 @@
-export type ConnectionType = "walletconnect" | "injected" | "local" | "none";
-
-export interface WalletStatus {
-  connected: boolean;
-  address?: string;
-  chainId?: number;
-  chainSlug?: string;
-  connectionType: ConnectionType;
-}
-
-export interface UnsignedTransaction {
-  chain: string;
-  from?: string;
-  to: string;
-  value?: string;
-  data?: string;
-  gas?: string;
-  gasPrice?: string;
-  maxFeePerGas?: string;
-  maxPriorityFeePerGas?: string;
-  nonce?: number;
-  chainId?: number;
-}
-
-export interface SignedTransaction {
-  rawTransaction: string;
-  hash?: string;
-}
-
-export interface ConnectResult {
-  uri?: string;
-  connected: boolean;
-  address?: string;
-}
-
-export interface TxPreview {
-  summary: string;
-  transaction: UnsignedTransaction;
-  estimatedGas?: string;
-}
-
-export interface SendResult {
-  txHash: string;
-  status: "submitted" | "rejected";
-  explorerUrl?: string;
-}
+export type {
+  ConnectResult,
+  ConnectionType,
+  SendResult,
+  TxPreview,
+  UnsignedTransaction,
+  WalletStatus,
+} from "@pokt-mcp/shared";
 
 export interface WalletBridge {
-  getStatus(): WalletStatus;
-  connect(mode?: "walletconnect" | "injected"): Promise<ConnectResult>;
+  getStatus(): import("@pokt-mcp/shared").WalletStatus;
+  connect(mode?: "walletconnect" | "injected"): Promise<import("@pokt-mcp/shared").ConnectResult>;
   disconnect(): Promise<void>;
   switchChain(chainSlug: string): Promise<void>;
   signMessage(message: string): Promise<string>;
-  buildTransferPreview(tx: UnsignedTransaction): Promise<TxPreview>;
-  signAndSend(tx: UnsignedTransaction, confirm: boolean): Promise<SendResult>;
-  sendRawTransaction(chain: string, rawTransaction: string, confirm: boolean): Promise<SendResult>;
+  buildTransferPreview(tx: import("@pokt-mcp/shared").UnsignedTransaction): Promise<import("@pokt-mcp/shared").TxPreview>;
+  signAndSend(tx: import("@pokt-mcp/shared").UnsignedTransaction, confirm: boolean): Promise<import("@pokt-mcp/shared").SendResult>;
+  sendRawTransaction(chain: string, rawTransaction: string, confirm: boolean): Promise<import("@pokt-mcp/shared").SendResult>;
 }
 
 export interface WalletBridgeOptions {
   walletConnectProjectId?: string;
-  allowedChains?: string[];
+  allowedChains?: string | string[];
   maxSendValueEth?: number;
   allowLocalSigner?: boolean;
   localPrivateKey?: string;
+  ethereumProvider?: EthereumProvider;
+}
+
+export interface EthereumProvider {
+  request(args: { method: string; params?: unknown[] }): Promise<unknown>;
+  on?(event: string, handler: (...args: unknown[]) => void): void;
+  removeListener?(event: string, handler: (...args: unknown[]) => void): void;
 }

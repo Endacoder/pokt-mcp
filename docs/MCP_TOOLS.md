@@ -1,6 +1,36 @@
 # MCP Tool Reference
 
-Complete tool catalog for the Pocket MCP server. All tools follow MCP JSON Schema conventions.
+Complete tool catalog for the **pokt-mcp** server. All tools follow MCP JSON Schema conventions.
+
+See [USE_CASES.md](./USE_CASES.md) for the full use case catalog.
+
+---
+
+## Primary query
+
+### `pocket_query`
+
+**PRIMARY tool** for natural language blockchain questions. Routes through templates, LLM intent, and multi-step agent as needed.
+
+**Input:**
+
+| Field | Type | Required |
+|-------|------|----------|
+| `query` | string | yes |
+| `chain` | string | no — default chain slug |
+| `sessionId` | string | no — follow-up context |
+
+**Output:** `{ route, answer, intent, output, steps, fallbackUsed }` or `{ requiresConfirmation, intent }` for writes.
+
+Swap **execution** queries return an error directing agents to a third-party swap MCP.
+
+---
+
+### `pocket_agent_query`
+
+Explicit multi-step agent loop for complex research. Prefer `pocket_query` (agent is integrated there).
+
+**Input:** `{ query, chain?, sessionId?, maxSteps? }`
 
 ---
 
@@ -70,6 +100,23 @@ List commonly used RPC methods for a chain's protocol.
 | `block` | string | no — default `"latest"` |
 
 **Output:** `{ address, balanceWei, balanceFormatted, symbol }`
+
+---
+
+
+### `pocket_get_token_balance`
+
+Get ERC-20 token balance for an address.
+
+**Input:**
+
+| Field | Type | Required |
+|-------|------|----------|
+| `chain` | string | yes |
+| `token` | string | yes — symbol (USDC, USDT, DAI) or contract address |
+| `address` | string | yes |
+
+**Output:** `{ chain, symbol, address, tokenAddress, balance, balanceRaw, decimals }`
 
 ---
 
@@ -389,20 +436,29 @@ Broadcast a pre-signed raw transaction.
 
 ---
 
-## MCP Resources (optional)
+## MCP Resources
 
 | URI | Description |
 |-----|-------------|
+| `pokt://tool-guide` | Tool selection guide (same as server instructions) |
 | `pocket://chains` | Full chain registry JSON |
-| `pocket://methods/{protocol}` | Method reference per protocol |
-| `pocket://session` | Current wallet + default chain context |
+| `pocket://methods/evm` | Common EVM RPC methods |
+| `pocket://methods/solana` | Common Solana RPC methods |
+| `pocket://methods/cosmos` | Common Cosmos RPC methods |
+| `pocket://session` | Active MCP session contexts by sessionId |
 
 ---
 
-## MCP Prompts (optional)
+## MCP Prompts
 
 | Prompt | Description |
 |--------|-------------|
-| `analyze-wallet` | Template for portfolio analysis across chains |
-| `explain-tx` | Template for transaction receipt explanation |
-| `build-contract-call` | Guided ABI encoding for `eth_call` |
+| `analyze-wallet` | Portfolio analysis workflow using pocket_query |
+| `explain-tx` | Transaction + receipt explanation workflow |
+| `build-contract-call` | Guided calldata for pocket_call_contract |
+
+---
+
+## Third-party MCPs
+
+pokt-mcp does **not** include swap execution tools. Configure a third-party swap MCP separately. See [USE_CASES.md](./USE_CASES.md#third-party-mcp-integrations-optional).

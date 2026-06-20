@@ -12,13 +12,17 @@
   },
   "scripts": {
     "build": "tsc",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
-    "@pokt-mcp/pocket-client": "*"
+    "@pokt-mcp/pocket-client": "*",
+    "@pokt-mcp/shared": "*",
+    "viem": "^2.21.0"
   },
   "devDependencies": {
-    "typescript": "^5.7.0"
+    "typescript": "^5.7.0",
+    "vitest": "^4.1.9"
   },
   "license": "MIT"
 }

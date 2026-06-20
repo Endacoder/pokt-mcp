@@ -1,73 +1,28 @@
 [
-  {
-    "slug": "eth",
-    "name": "Ethereum Mainnet",
-    "chainId": 1,
-    "nativeSymbol": "ETH",
-    "protocol": "evm",
-    "aliases": ["ethereum", "mainnet", "1"],
-    "blockExplorer": "https://etherscan.io"
-  },
-  {
-    "slug": "base",
-    "name": "Base",
-    "chainId": 8453,
-    "nativeSymbol": "ETH",
-    "protocol": "evm",
-    "aliases": ["base-mainnet", "8453"],
-    "blockExplorer": "https://basescan.org"
-  },
-  {
-    "slug": "arb-one",
-    "name": "Arbitrum One",
-    "chainId": 42161,
-    "nativeSymbol": "ETH",
-    "protocol": "evm",
-    "aliases": ["arbitrum", "arb", "42161"],
-    "blockExplorer": "https://arbiscan.io"
-  },
-  {
-    "slug": "poly",
-    "name": "Polygon",
-    "chainId": 137,
-    "nativeSymbol": "MATIC",
-    "protocol": "evm",
-    "aliases": ["polygon", "matic", "137"],
-    "blockExplorer": "https://polygonscan.com"
-  },
-  {
-    "slug": "avax",
-    "name": "Avalanche C-Chain",
-    "chainId": 43114,
-    "nativeSymbol": "AVAX",
-    "protocol": "evm",
-    "aliases": ["avalanche", "43114"],
-    "blockExplorer": "https://snowtrace.io"
-  },
-  {
-    "slug": "opt",
-    "name": "Optimism",
-    "chainId": 10,
-    "nativeSymbol": "ETH",
-    "protocol": "evm",
-    "aliases": ["optimism", "10"],
-    "blockExplorer": "https://optimistic.etherscan.io"
-  },
-  {
-    "slug": "solana",
-    "name": "Solana Mainnet",
-    "nativeSymbol": "SOL",
-    "protocol": "solana",
-    "aliases": ["sol", "sol-mainnet"],
-    "blockExplorer": "https://explorer.solana.com"
-  },
-  {
-    "slug": "gnosis",
-    "name": "Gnosis Chain",
-    "chainId": 100,
-    "nativeSymbol": "xDAI",
-    "protocol": "evm",
-    "aliases": ["xdai", "100"],
-    "blockExplorer": "https://gnosisscan.io"
-  }
+  { "slug": "eth", "name": "Ethereum Mainnet", "chainId": 1, "nativeSymbol": "ETH", "protocol": "evm", "aliases": ["ethereum", "mainnet", "1"], "blockExplorer": "https://etherscan.io" },
+  { "slug": "base", "name": "Base", "chainId": 8453, "nativeSymbol": "ETH", "protocol": "evm", "aliases": ["base-mainnet", "8453"], "blockExplorer": "https://basescan.org" },
+  { "slug": "arb-one", "name": "Arbitrum One", "chainId": 42161, "nativeSymbol": "ETH", "protocol": "evm", "aliases": ["arbitrum", "arb", "42161"], "blockExplorer": "https://arbiscan.io" },
+  { "slug": "poly", "name": "Polygon", "chainId": 137, "nativeSymbol": "MATIC", "protocol": "evm", "aliases": ["polygon", "matic", "137"], "blockExplorer": "https://polygonscan.com" },
+  { "slug": "avax", "name": "Avalanche C-Chain", "chainId": 43114, "nativeSymbol": "AVAX", "protocol": "evm", "aliases": ["avalanche", "43114"], "blockExplorer": "https://snowtrace.io" },
+  { "slug": "opt", "name": "Optimism", "chainId": 10, "nativeSymbol": "ETH", "protocol": "evm", "aliases": ["optimism", "10"], "blockExplorer": "https://optimistic.etherscan.io" },
+  { "slug": "gnosis", "name": "Gnosis Chain", "chainId": 100, "nativeSymbol": "xDAI", "protocol": "evm", "aliases": ["xdai", "100"], "blockExplorer": "https://gnosisscan.io" },
+  { "slug": "bsc", "name": "BNB Smart Chain", "chainId": 56, "nativeSymbol": "BNB", "protocol": "evm", "aliases": ["bnb", "binance", "56"], "blockExplorer": "https://bscscan.com" },
+  { "slug": "linea", "name": "Linea", "chainId": 59144, "nativeSymbol": "ETH", "protocol": "evm", "aliases": ["59144"], "blockExplorer": "https://lineascan.build" },
+  { "slug": "scroll", "name": "Scroll", "chainId": 534352, "nativeSymbol": "ETH", "protocol": "evm", "aliases": ["534352"], "blockExplorer": "https://scrollscan.com" },
+  { "slug": "blast", "name": "Blast", "chainId": 81457, "nativeSymbol": "ETH", "protocol": "evm", "aliases": ["81457"], "blockExplorer": "https://blastscan.io" },
+  { "slug": "mantle", "name": "Mantle", "chainId": 5000, "nativeSymbol": "MNT", "protocol": "evm", "aliases": ["5000"], "blockExplorer": "https://mantlescan.xyz" },
+  { "slug": "celo", "name": "Celo", "chainId": 42220, "nativeSymbol": "CELO", "protocol": "evm", "aliases": ["42220"], "blockExplorer": "https://celoscan.io" },
+  { "slug": "fantom", "name": "Fantom", "chainId": 250, "nativeSymbol": "FTM", "protocol": "evm", "aliases": ["ftm", "250"], "blockExplorer": "https://ftmscan.com" },
+  { "slug": "moonbeam", "name": "Moonbeam", "chainId": 1284, "nativeSymbol": "GLMR", "protocol": "evm", "aliases": ["1284"], "blockExplorer": "https://moonscan.io" },
+  { "slug": "kava", "name": "Kava EVM", "chainId": 2222, "nativeSymbol": "KAVA", "protocol": "evm", "aliases": ["2222"], "blockExplorer": "https://kavascan.com" },
+  { "slug": "bera", "name": "Berachain", "chainId": 80094, "nativeSymbol": "BERA", "protocol": "evm", "aliases": ["berachain", "80094"], "blockExplorer": "https://berascan.com" },
+  { "slug": "zksync", "name": "zkSync Era", "chainId": 324, "nativeSymbol": "ETH", "protocol": "evm", "aliases": ["324"], "blockExplorer": "https://explorer.zksync.io" },
+  { "slug": "fraxtal", "name": "Fraxtal", "chainId": 252, "nativeSymbol": "frxETH", "protocol": "evm", "aliases": ["252"], "blockExplorer": "https://fraxscan.com" },
+  { "slug": "metis", "name": "Metis", "chainId": 1088, "nativeSymbol": "METIS", "protocol": "evm", "aliases": ["1088"], "blockExplorer": "https://andromeda-explorer.metis.io" },
+  { "slug": "solana", "name": "Solana Mainnet", "nativeSymbol": "SOL", "protocol": "solana", "aliases": ["sol", "sol-mainnet"], "blockExplorer": "https://explorer.solana.com" },
+  { "slug": "eth-sepolia-testnet", "name": "Ethereum Sepolia", "chainId": 11155111, "nativeSymbol": "ETH", "protocol": "evm", "aliases": ["sepolia", "eth-sepolia", "11155111"], "blockExplorer": "https://sepolia.etherscan.io", "testnet": true },
+  { "slug": "base-sepolia-testnet", "name": "Base Sepolia", "chainId": 84532, "nativeSymbol": "ETH", "protocol": "evm", "aliases": ["base-sepolia", "84532"], "blockExplorer": "https://sepolia.basescan.org", "testnet": true },
+  { "slug": "arb-sepolia-testnet", "name": "Arbitrum Sepolia", "chainId": 421614, "nativeSymbol": "ETH", "protocol": "evm", "aliases": ["arbitrum-sepolia", "421614"], "blockExplorer": "https://sepolia.arbiscan.io", "testnet": true },
+  { "slug": "op-sepolia-testnet", "name": "Optimism Sepolia", "chainId": 11155420, "nativeSymbol": "ETH", "protocol": "evm", "aliases": ["optimism-sepolia", "11155420"], "blockExplorer": "https://sepolia-optimism.etherscan.io", "testnet": true },
+  { "slug": "poly-amoy-testnet", "name": "Polygon Amoy", "chainId": 80002, "nativeSymbol": "POL", "protocol": "evm", "aliases": ["amoy", "polygon-amoy", "80002"], "blockExplorer": "https://amoy.polygonscan.com", "testnet": true }
 ]

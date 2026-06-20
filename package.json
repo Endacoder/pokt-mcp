@@ -4,19 +4,45 @@
   "private": true,
   "description": "AI & Agents — MCP integrations for Pocket Network RPC, natural language queries, and wallet connect/send",
   "workspaces": [
-    "packages/*"
+    "packages/*",
+    "apps/*"
   ],
   "scripts": {
-    "build": "npm run build -w @pokt-mcp/pocket-client && npm run build -w @pokt-mcp/nl-rpc && npm run build -w @pokt-mcp/wallet-bridge && npm run build -w @pokt-mcp/server",
-    "dev": "npm run dev -w @pokt-mcp/server",
+    "build": "npm run build -w @pokt-mcp/shared && npm run build -w @pokt-mcp/pocket-client && npm run build -w @pokt-mcp/tx-builder && npm run build -w @pokt-mcp/nl-rpc && npm run build -w @pokt-mcp/wallet-bridge && npm run build -w @pokt-mcp/agent-orchestrator && npm run build -w @pokt-mcp/server && npm run build -w @pokt-mcp/api && npm run build -w @pokt-mcp/web",
+    "dev": "HOST=127.0.0.1 PORT=3002 npm run dev -w @pokt-mcp/api",
+    "dev:mcp": "npm run dev -w @pokt-mcp/server",
+    "dev:web": "API_INTERNAL_URL=http://127.0.0.1:3002 NEXT_PUBLIC_API_URL=/api npm run dev -w @pokt-mcp/web",
+    "dev:all": "npm run dev & npm run dev:web",
+    "tunnel:setup": "bash scripts/setup-cloudflare-tunnel.sh",
+    "prod:up": "docker compose -f docker-compose.prod.yml up -d --build",
+    "postinstall": "node scripts/dedupe-postcss.mjs",
+    "test": "npm run test --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present"
   },
   "engines": {
     "node": ">=20"
   },
+  "overrides": {
+    "esbuild": ">=0.25.0",
+    "postcss": "^8.5.15",
+    "ws": "^8.21.0",
+    "next": {
+      "postcss": "$postcss"
+    },
+    "viem": {
+      "ws": "^8.21.0"
+    },
+    "isows": {
+      "ws": "^8.21.0"
+    }
+  },
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/Endacoder/pokt-mcp.git"
+  },
+  "devDependencies": {
+    "postcss": "^8.5.15",
+    "ws": "^8.21.0"
   }
 }

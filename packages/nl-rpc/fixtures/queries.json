@@ -1,0 +1,21 @@
+[
+  { "query": "latest block on Base", "expectMethod": "eth_blockNumber", "expectChain": "base" },
+  { "query": "What is the latest block on Ethereum?", "expectMethod": "eth_blockNumber", "expectChain": "eth" },
+  { "query": "balance of 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045 on polygon", "expectMethod": "eth_getBalance", "expectChain": "poly" },
+  { "query": "gas price on arbitrum", "expectMethod": "eth_gasPrice", "expectChain": "arb-one" },
+  { "query": "transaction 0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef", "expectMethod": "eth_getTransactionByHash", "expectChain": "eth" },
+  { "query": "chain id on optimism", "expectMethod": "eth_chainId", "expectChain": "opt" },
+  { "query": "receipt 0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef", "expectMethod": "eth_getTransactionReceipt", "expectChain": "eth" },
+  { "query": "block number 12345 on eth", "expectMethod": "eth_getBlockByNumber", "expectChain": "eth" },
+  { "query": "list chains", "expectMethod": "__list_chains__", "expectChain": "eth" },
+  { "query": "List all Pocket chains", "expectMethod": "__list_chains__", "expectChain": "eth" },
+  { "query": "what chains are supported", "expectMethod": "__list_chains__", "expectChain": "eth" },
+  { "query": "show available pocket networks", "expectMethod": "__list_chains__", "expectChain": "eth" },
+  { "query": "send 0.01 eth to 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045", "expectMethod": "eth_sendTransaction", "expectChain": "eth", "expectWrite": true },
+  { "query": "balance of vitalik.eth", "expectMethod": "__ens_balance__", "expectChain": "eth" },
+  { "query": "current gas on base", "expectMethod": "eth_gasPrice", "expectChain": "base" },
+  { "query": "nonce for 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045", "expectMethod": "eth_getTransactionCount", "expectChain": "eth" },
+  { "query": "blockchain height on polygon", "expectMethod": "eth_blockNumber", "expectChain": "poly" },
+  { "query": "network version on eth", "expectMethod": "net_version", "expectChain": "eth" },
+  { "query": "in the last 24 hours what has been the most traded token on ETH chain", "expectMethod": "__market_analytics_unsupported__", "expectChain": "eth" }
+]

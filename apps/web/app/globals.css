@@ -1,0 +1,360 @@
+@import "tailwindcss/base";
+@import "tailwindcss/components";
+@import "tailwindcss/utilities";
+
+@import "@fontsource/inter/400.css";
+@import "@fontsource/inter/500.css";
+@import "@fontsource/inter/600.css";
+@import "@fontsource/inter/700.css";
+
+/*
+ * Protocol Interface — AI MCP chat theme
+ * Light: MCP brand (blue/cyan, dark sidebar) + warm-neutral chat column (Claude-style readability)
+ * Dark:  #12121E base, desaturated accents (Material / atmos dark-mode guidelines)
+ */
+
+:root,
+[data-theme="light"] {
+  color-scheme: light;
+
+  --mcp-blue: #0077ee;
+  --mcp-blue-hover: #0066cc;
+  --mcp-cyan: #00ddbb;
+  --mcp-dark: #111122;
+  --agent-violet: #7c5cfc;
+  --agent-violet-dim: rgba(124, 92, 252, 0.12);
+
+  --pocket-bg: #f1f1f5;
+  --pocket-chat: #fafafc;
+  --pocket-surface: #ffffff;
+  --pocket-elevated: #eaeaf0;
+  --pocket-foreground: #111122;
+  --pocket-muted: #5c5c72;
+  --pocket-muted-light: #9494a8;
+  --pocket-border: #d4d4e0;
+
+  --pocket-accent: var(--mcp-blue);
+  --pocket-accent-hover: var(--mcp-blue-hover);
+  --pocket-accent-dim: rgba(0, 119, 238, 0.1);
+  --pocket-cyan: var(--mcp-cyan);
+  --pocket-cyan-dim: rgba(0, 221, 187, 0.12);
+  --pocket-dark: var(--mcp-dark);
+  --pocket-glass: rgba(255, 255, 255, 0.88);
+  --pocket-glass-border: rgba(17, 17, 34, 0.06);
+
+  --pocket-success: #00c4a0;
+  --pocket-success-surface: rgba(0, 221, 187, 0.1);
+  --pocket-success-border: rgba(0, 221, 187, 0.35);
+  --pocket-warning: #d97706;
+  --pocket-warning-surface: #fffbeb;
+  --pocket-warning-border: #fcd34d;
+  --pocket-warning-text: #92400e;
+  --pocket-error: #e5484d;
+  --pocket-error-surface: #fef2f2;
+  --pocket-error-border: #fecaca;
+  --pocket-error-text: #b91c1c;
+
+  --bubble-user-bg: var(--mcp-blue);
+  --bubble-user-text: #ffffff;
+  --bubble-user-shadow: 0 2px 12px rgba(0, 119, 238, 0.28);
+  --bubble-assistant-bg: var(--pocket-surface);
+  --bubble-assistant-border: var(--pocket-border);
+  --bubble-assistant-shadow: 0 1px 3px rgba(17, 17, 34, 0.04);
+
+  --gradient-blue: rgba(0, 119, 238, 0.06);
+  --gradient-cyan: rgba(0, 221, 187, 0.04);
+  --grid-dot: rgba(0, 119, 238, 0.04);
+  --sidebar-grid: rgba(0, 119, 238, 0.05);
+  --sidebar-glow: rgba(0, 119, 238, 0.14);
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --mcp-blue: #5b9fff;
+  --mcp-blue-hover: #7ab3ff;
+  --mcp-cyan: #3ddfc0;
+  --mcp-dark: #0a0a12;
+  --agent-violet: #9b87ff;
+  --agent-violet-dim: rgba(155, 135, 255, 0.14);
+
+  --pocket-bg: #12121e;
+  --pocket-chat: #161622;
+  --pocket-surface: #1e1e2e;
+  --pocket-elevated: #252538;
+  --pocket-foreground: #e8e8f0;
+  --pocket-muted: #9494a8;
+  --pocket-muted-light: #6b6b80;
+  --pocket-border: #2e2e42;
+
+  --pocket-accent: var(--mcp-blue);
+  --pocket-accent-hover: var(--mcp-blue-hover);
+  --pocket-accent-dim: rgba(91, 159, 255, 0.14);
+  --pocket-cyan: var(--mcp-cyan);
+  --pocket-cyan-dim: rgba(61, 223, 192, 0.12);
+  --pocket-dark: var(--mcp-dark);
+  --pocket-glass: rgba(22, 22, 34, 0.92);
+  --pocket-glass-border: rgba(255, 255, 255, 0.06);
+
+  --pocket-success: #3ddfc0;
+  --pocket-success-surface: rgba(61, 223, 192, 0.1);
+  --pocket-success-border: rgba(61, 223, 192, 0.28);
+  --pocket-warning: #fbbf24;
+  --pocket-warning-surface: rgba(251, 191, 36, 0.1);
+  --pocket-warning-border: rgba(251, 191, 36, 0.28);
+  --pocket-warning-text: #fde68a;
+  --pocket-error: #f87171;
+  --pocket-error-surface: rgba(248, 113, 113, 0.1);
+  --pocket-error-border: rgba(248, 113, 113, 0.28);
+  --pocket-error-text: #fecaca;
+
+  --bubble-user-bg: #2563b8;
+  --bubble-user-text: #f0f4ff;
+  --bubble-user-shadow: 0 2px 12px rgba(0, 0, 0, 0.35);
+  --bubble-assistant-bg: var(--pocket-surface);
+  --bubble-assistant-border: var(--pocket-border);
+  --bubble-assistant-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+
+  --gradient-blue: rgba(91, 159, 255, 0.08);
+  --gradient-cyan: rgba(61, 223, 192, 0.05);
+  --grid-dot: rgba(91, 159, 255, 0.06);
+  --sidebar-grid: rgba(91, 159, 255, 0.06);
+  --sidebar-glow: rgba(91, 159, 255, 0.12);
+}
+
+body {
+  background-color: var(--pocket-bg);
+  color: var(--pocket-foreground);
+  @apply antialiased;
+}
+
+.pocket-app-bg {
+  background-color: var(--pocket-bg);
+  background-image:
+    radial-gradient(ellipse 90% 55% at 50% -10%, var(--gradient-blue), transparent 55%),
+    radial-gradient(ellipse 45% 35% at 100% 0%, var(--gradient-cyan), transparent 50%),
+    radial-gradient(ellipse 40% 30% at 0% 100%, var(--gradient-blue), transparent 50%);
+}
+
+.pocket-grid-overlay {
+  background-image: radial-gradient(circle at center, var(--grid-dot) 1px, transparent 1px);
+  background-size: 26px 26px;
+  mask-image: radial-gradient(ellipse 85% 75% at 50% 35%, black 15%, transparent 72%);
+}
+
+.mcp-sidebar-bg {
+  background-color: var(--mcp-dark);
+  background-image:
+    linear-gradient(var(--sidebar-grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--sidebar-grid) 1px, transparent 1px),
+    radial-gradient(ellipse 80% 50% at 50% 0%, var(--sidebar-glow), transparent 60%);
+  background-size: 22px 22px, 22px 22px, 100% 100%;
+}
+
+.pocket-glass {
+  background: var(--pocket-glass);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border-color: var(--pocket-glass-border);
+}
+
+.pocket-gradient-text {
+  background: linear-gradient(135deg, var(--mcp-blue) 0%, var(--mcp-cyan) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.pocket-gradient-border {
+  position: relative;
+}
+
+.pocket-gradient-border::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--mcp-blue) 55%, transparent),
+    color-mix(in srgb, var(--mcp-cyan) 40%, transparent),
+    color-mix(in srgb, var(--mcp-blue) 20%, transparent)
+  );
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+.chat-reading-surface {
+  background-color: var(--pocket-chat);
+  background-image:
+    radial-gradient(ellipse 75% 45% at 50% 0%, var(--gradient-blue), transparent 65%);
+}
+
+.composer-fade {
+  pointer-events: none;
+  background: linear-gradient(to top, var(--pocket-chat) 45%, transparent);
+}
+
+.bubble-user {
+  background-color: var(--bubble-user-bg);
+  color: var(--bubble-user-text);
+  box-shadow: var(--bubble-user-shadow);
+}
+
+.bubble-assistant {
+  background-color: var(--bubble-assistant-bg);
+  color: var(--pocket-foreground);
+  border: 1px solid var(--bubble-assistant-border);
+  box-shadow: var(--bubble-assistant-shadow);
+}
+
+.surface-success {
+  background-color: var(--pocket-success-surface);
+  border: 1px solid var(--pocket-success-border);
+  color: var(--pocket-foreground);
+}
+
+.surface-warning {
+  background-color: var(--pocket-warning-surface);
+  border: 1px solid var(--pocket-warning-border);
+  color: var(--pocket-warning-text);
+}
+
+.surface-error {
+  background-color: var(--pocket-error-surface);
+  border: 1px solid var(--pocket-error-border);
+  color: var(--pocket-error-text);
+}
+
+.overflow-y-auto {
+  scrollbar-width: thin;
+  scrollbar-color: var(--pocket-border) transparent;
+}
+
+.overflow-y-auto::-webkit-scrollbar {
+  width: 6px;
+}
+
+.overflow-y-auto::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.overflow-y-auto::-webkit-scrollbar-thumb {
+  background-color: var(--pocket-border);
+  border-radius: 3px;
+}
+
+.overflow-y-auto::-webkit-scrollbar-thumb:hover {
+  background-color: var(--pocket-muted-light);
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulse-glow {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--mcp-cyan) 45%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 4px transparent;
+  }
+}
+
+@keyframes float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-4px);
+  }
+}
+
+@keyframes stream-cursor {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.25s ease-out;
+}
+
+.animate-fade-in-up {
+  animation: fade-in-up 0.45s ease-out both;
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 2.5s ease-in-out infinite;
+}
+
+.animate-float {
+  animation: float 4s ease-in-out infinite;
+}
+
+.stream-cursor::after {
+  content: "";
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  background: var(--mcp-cyan);
+  animation: stream-cursor 0.9s step-end infinite;
+}
+
+/* Agent-state accents */
+.agent-thinking-panel {
+  border-left: 3px solid var(--agent-violet);
+}
+
+.agent-tool-panel {
+  border-left: 3px solid var(--pocket-accent);
+}
+
+.badge-agent {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  border-radius: 9999px;
+  border: 1px solid var(--agent-violet-dim);
+  background: var(--agent-violet-dim);
+  padding: 0.125rem 0.625rem;
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--agent-violet);
+}

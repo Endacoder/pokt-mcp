@@ -1,4 +1,4 @@
-import { resolveChain } from "./registry/index.js";
+import { parseMethodDenylist, isWriteRpcMethod } from "@pokt-mcp/shared";
 import type {
   ChainRegistry,
   PocketClient,
@@ -8,30 +8,19 @@ import type {
   RpcResult,
 } from "./types.js";
 
-const DEFAULT_DENYLIST = [
-  "personal_importRawKey",
-  "eth_sign",
-];
-
 function getDenylist(): Set<string> {
-  const env = process.env.RPC_METHOD_DENYLIST ?? "";
-  const methods = env.split(",").map((m) => m.trim()).filter(Boolean);
-  return new Set([...DEFAULT_DENYLIST, ...methods]);
+  return new Set(parseMethodDenylist());
 }
 
 function isWriteMethod(method: string): boolean {
-  return (
-    method === "eth_sendRawTransaction" ||
-    method === "eth_sendTransaction" ||
-    method.startsWith("personal_")
-  );
+  return isWriteRpcMethod(method);
 }
 
 async function sleep(ms: number): Promise<void> {
   await new Promise((r) => setTimeout(r, ms));
 }
 
-import { getChain, listChains } from "./registry/index.js";
+import { getChain, listChains, resolveChain } from "./registry/index.js";
 
 export function createChainRegistry(): ChainRegistry {
   return { list: listChains, get: getChain, resolve: resolveChain };
@@ -40,7 +29,14 @@ export function createChainRegistry(): ChainRegistry {
 export function createPocketClient(options: PocketClientOptions = {}): PocketClient {
   const timeoutMs = options.timeoutMs ?? 30_000;
   const maxRetries = options.maxRetries ?? 3;
+  const cacheTtlMs = options.cacheTtlMs ?? 5_000;
   const fallback = options.fallbackRpcUrls ?? parseFallbackEnv();
+  const cache = new Map<string, { expires: number; value: RpcResponse<unknown> }>();
+  const CACHEABLE = new Set(["eth_blockNumber", "eth_gasPrice", "eth_chainId"]);
+
+  function cacheKey(chain: string, method: string, params: unknown[]) {
+    return `${chain}:${method}:${JSON.stringify(params)}`;
+  }
 
   function resolveEndpoint(chain: string): string {
     const info = resolveChain(chain);
@@ -137,9 +133,23 @@ export function createPocketClient(options: PocketClientOptions = {}): PocketCli
         );
       }
 
+      const key = cacheKey(chain, method, params);
+      if (CACHEABLE.has(method)) {
+        const hit = cache.get(key);
+        if (hit && hit.expires > Date.now()) {
+          return hit.value as RpcResponse<T>;
+        }
+      }
+
       const endpoint = resolveEndpoint(chain);
       const body = { jsonrpc: "2.0", method, params, id: 1 };
-      return post<T>(endpoint, body, chain, method);
+      const resp = await post<T>(endpoint, body, chain, method);
+
+      if (CACHEABLE.has(method)) {
+        cache.set(key, { expires: Date.now() + cacheTtlMs, value: resp as RpcResponse<unknown> });
+      }
+
+      return resp;
     },
 
     async broadcast<T>(chain: string, rawTransaction: string) {
@@ -188,3 +198,9 @@ function parseFallbackEnv(): Record<string, string> {
 
 export * from "./types.js";
 export { listChains, getChain, resolveChain } from "./registry/index.js";
+export {
+  EVM_METHODS,
+  SOLANA_METHODS,
+  COSMOS_METHODS,
+  listMethodsForProtocol,
+} from "./methods.js";

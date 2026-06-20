@@ -17,18 +17,22 @@
     "build": "tsc",
     "dev": "node --watch dist/index.js",
     "typecheck": "tsc --noEmit",
-    "start": "node dist/index.js"
+    "start": "node dist/index.js",
+    "test": "vitest run"
   },
-  "dependencies": {
+    "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.0",
+    "@pokt-mcp/agent-orchestrator": "*",
     "@pokt-mcp/nl-rpc": "*",
     "@pokt-mcp/pocket-client": "*",
+    "@pokt-mcp/shared": "*",
     "@pokt-mcp/wallet-bridge": "*",
     "zod": "^3.24.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
-    "typescript": "^5.7.0"
+    "typescript": "^5.7.0",
+    "vitest": "^4.1.9"
   },
   "license": "MIT"
 }
