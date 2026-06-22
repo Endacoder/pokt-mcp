@@ -11,8 +11,8 @@ Canonical project document for the **Build on Pocket (BoP)** competition. Judges
 | **Project name** | POKT MCP (`pokt-mcp`) |
 | **Tagline** | AI Agents × Pocket Network × MCP |
 | **Track / category** | AI & Agents |
-| **Team members** | Team Member 1, Team Member 2, Team Member 3 *(replace with real names/handles)* |
-| **Repository** | [github.com/Endacoder/pokt-mcp-private](https://github.com/Endacoder/pokt-mcp-private) *(private — judges have been granted access)* |
+| **Team members** | AlexS, Oggy, ifadaa43, Jovial 💕💕|
+| **Repository** | https://github.com/Endacoder/pokt-mcp |
 | **Live demo** | [https://pokt.metalift.ai](https://pokt.metalift.ai) |
 | **Local demo** | `docker-compose up --build` → http://localhost:3000 (see [README](../README.md)) |
 
