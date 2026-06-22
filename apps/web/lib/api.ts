@@ -17,6 +17,8 @@ async function apiFetch(apiUrl: string, path: string, init: RequestInit = {}): P
   return res;
 }
 
+import type { ChatHistoryMessage } from "@pokt-mcp/shared";
+
 export type ChainInfo = {
   slug: string;
   name: string;
@@ -28,6 +30,7 @@ export type ChatRequest = {
   message: string;
   chain?: string;
   sessionId: string;
+  history?: ChatHistoryMessage[];
   connectedAddress?: string;
   swapExecutionMode?: "any" | "gasless" | "gas";
 };
@@ -136,25 +139,45 @@ export type TxPreviewResponse = {
     from?: string;
     to: string;
     value?: string;
+    data?: string;
     gas?: string;
     maxFeePerGas?: string;
+    maxPriorityFeePerGas?: string;
+    nonce?: number;
     chainId?: number;
   };
   estimatedGas?: string;
+  gasEstimateFallback?: boolean;
   explorerUrl?: string;
   error?: string;
 };
 
 export async function previewTransaction(
   apiUrl: string,
-  body: { chain: string; from: string; to: string; value?: string },
+  body: { chain: string; from: string; to: string; value?: string; data?: string; gasLimit?: string },
 ): Promise<TxPreviewResponse> {
   const res = await apiFetch(apiUrl, "/wallet/tx/preview", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  return res.json() as Promise<TxPreviewResponse>;
+  return (await res.json()) as TxPreviewResponse;
+}
+
+export async function broadcastTransaction(
+  apiUrl: string,
+  body: { chain: string; rawTransaction: string },
+): Promise<{ txHash: string; explorerUrl?: string; status?: string }> {
+  const res = await apiFetch(apiUrl, "/wallet/tx/broadcast", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const json = (await res.json()) as { txHash?: string; explorerUrl?: string; status?: string; error?: string };
+  if (!res.ok || !json.txHash) {
+    throw new Error(json.error ?? `Broadcast failed (${res.status})`);
+  }
+  return { txHash: json.txHash, explorerUrl: json.explorerUrl, status: json.status };
 }
 
 export async function recordSubmittedTransaction(
@@ -177,4 +200,42 @@ export async function recordSubmittedTransaction(
     const json = (await res.json().catch(() => ({}))) as { error?: string };
     throw new Error(json.error ?? `Failed to record transaction (${res.status})`);
   }
+}
+
+export type McpEnvStatus = {
+  llmConfigured: boolean;
+  featureNlLlm?: boolean;
+  agentLoopEnabled: boolean;
+  agentMaxSteps?: number;
+  warnings: string[];
+  stdioEnv?: Record<string, string>;
+  intentMcp?: {
+    enabled: boolean;
+    configured: boolean;
+    mode?: "mcp-remote" | "stdio-local" | "sse";
+    stdioEnv?: Record<string, string>;
+    hasApiKey?: boolean;
+    hasCommand?: boolean;
+    hasSseUrl?: boolean;
+    remoteUrl?: string;
+    serverEntry?: Record<string, unknown>;
+  };
+};
+
+/** Server-side MCP env status (Next.js route — requires session token when enabled). */
+export async function fetchMcpEnv(apiUrl: string): Promise<McpEnvStatus | null> {
+  await ensureSessionToken(apiUrl);
+  const run = () =>
+    fetch("/api/mcp-env", {
+      headers: sessionHeaders(),
+    });
+
+  let res = await run();
+  if (res.status === 401) {
+    clearSessionToken();
+    await ensureSessionToken(apiUrl, true);
+    res = await run();
+  }
+  if (!res.ok) return null;
+  return res.json() as Promise<McpEnvStatus>;
 }

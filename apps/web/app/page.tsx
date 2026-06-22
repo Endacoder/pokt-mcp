@@ -1,11 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { getAddress } from "viem";
+import { syncWalletSession } from "../lib/wallet-session";
+import { peekConnectedWallet } from "../lib/wallet-connect";
 import { AdvancedRpcPanel } from "../components/AdvancedRpcPanel";
-import { ChatInput } from "../components/ChatInput";
+import { ChatInput, type ChatInputHandle } from "../components/ChatInput";
 import { ChatMessage } from "../components/ChatMessage";
+import { CommandsBar } from "../components/CommandsBar";
 import { ConversationSidebar } from "../components/ConversationSidebar";
-import { FollowUpChips } from "../components/FollowUpChips";
 import { AgentMark } from "../components/brand/AgentMark";
 import { BrandWordmark } from "../components/brand/BrandWordmark";
 import { BRAND } from "../lib/brand";
@@ -21,10 +24,13 @@ import { TxConfirmModal } from "../components/TxConfirmModal";
 import { WalletButton } from "../components/WalletButton";
 import { WalletChainBadge } from "../components/WalletChainBadge";
 import { getApiUrl } from "../lib/api-url";
+import { isThinkingEnabled } from "../lib/feature-flags";
 import type { SwapFlowState, SwapPhase } from "../lib/swap-status";
 import type { SwapQuoteDisplay } from "../lib/swap-api";
 import { toDisplayString } from "../lib/format";
+import { buildChatHistory } from "../lib/chat-history";
 import { fetchChains, parseChatSse, postChat, recordSubmittedTransaction, type ChainInfo } from "../lib/api";
+import { commandHandle, resolveChatMessage, type McpCommand } from "../lib/mcp-commands";
 import { getSessionId } from "../lib/session";
 import {
   clearAllConversations,
@@ -86,6 +92,7 @@ export default function HomePage() {
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const chatInputRef = useRef<ChatInputHandle>(null);
   const abortRef = useRef<AbortController | null>(null);
   const activeConvRef = useRef<Conversation | null>(null);
 
@@ -195,10 +202,42 @@ export default function HomePage() {
       });
   }, []);
 
-  // Keep app chain in sync when the wallet switches networks.
+  const applyWalletFromProvider = useCallback(
+    (next: string | undefined) => {
+      if (!next) {
+        setPendingSwap(null);
+        setSwapFlow(null);
+        setWalletAddress(undefined);
+        return;
+      }
+      setWalletAddress((prev) => {
+        if (prev && getAddress(prev) !== getAddress(next)) {
+          setPendingSwap(null);
+          setSwapFlow(null);
+        }
+        return next;
+      });
+      void syncWalletSession(API_URL, next, chain).catch((err) =>
+        console.error("Wallet session sync failed:", err),
+      );
+    },
+    [chain],
+  );
+
+  // Keep app wallet + chain in sync when the user switches account or network in MetaMask.
   useEffect(() => {
     const provider = window.ethereum;
-    if (!provider?.on || !walletAddress) return;
+    if (!provider?.on) return;
+
+    const onAccountsChanged = (...args: unknown[]) => {
+      const accounts = args[0] as string[] | undefined;
+      const next = accounts?.[0]?.trim();
+      if (next && /^0x[a-fA-F0-9]{40}$/.test(next)) {
+        applyWalletFromProvider(next);
+      } else {
+        applyWalletFromProvider(undefined);
+      }
+    };
 
     const onChainChanged = (...args: unknown[]) => {
       const chainIdHex = String(args[0] ?? "");
@@ -210,17 +249,39 @@ export default function HomePage() {
       }
     };
 
+    provider.on("accountsChanged", onAccountsChanged);
     provider.on("chainChanged", onChainChanged);
     return () => {
+      provider.removeListener?.("accountsChanged", onAccountsChanged);
       provider.removeListener?.("chainChanged", onChainChanged);
     };
-  }, [walletAddress, chains]);
+  }, [chains, chain, applyWalletFromProvider]);
 
   function handleWalletConnected(address: string, _mode: unknown, chainSlug: string, chainId: number) {
     setWalletAddress(address);
     setWalletChainId(chainId);
     setChain(chainSlug);
   }
+
+  // On load / tab focus, sync header wallet with MetaMask's active account (eth_accounts[0]).
+  useEffect(() => {
+    if (!hydrated) return;
+    void peekConnectedWallet().then((addr) => {
+      if (addr) applyWalletFromProvider(addr);
+    });
+  }, [hydrated, applyWalletFromProvider]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    const onFocus = () => {
+      void peekConnectedWallet().then((addr) => {
+        if (addr) applyWalletFromProvider(addr);
+        else if (walletAddress) applyWalletFromProvider(undefined);
+      });
+    };
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [hydrated, applyWalletFromProvider, walletAddress]);
 
   const persistConversation = useCallback(
     (msgs: Message[], chainSlug: string, convId: string | null) => {
@@ -290,7 +351,10 @@ export default function HomePage() {
 
   const sendChat = useCallback(
     async (text?: string) => {
-      const userMessage = (text ?? input).trim();
+      const raw = (text ?? input).trim();
+      const userMessage = resolveChatMessage(raw, {
+        context: walletAddress ? { walletAddress, chain } : undefined,
+      });
       if (!userMessage || loading) return;
 
       let conv = getActiveConversation();
@@ -300,6 +364,9 @@ export default function HomePage() {
         setActiveConversationId(conv.id);
       }
       activeConvRef.current = conv;
+
+      const priorMessages = messages;
+      const chatHistory = buildChatHistory(priorMessages);
 
       setInput("");
       setMessages((m) => [
@@ -367,6 +434,7 @@ export default function HomePage() {
           API_URL,
           {
             message: userMessage,
+            history: chatHistory.length > 0 ? chatHistory : undefined,
             chain,
             sessionId: getSessionId(),
             connectedAddress: walletAddress,
@@ -374,12 +442,18 @@ export default function HomePage() {
           },
           { signal: controller.signal },
         );
-        if (!res.ok) throw new Error(`Chat failed: ${res.status}`);
+        if (!res.ok) {
+          const hint =
+            res.status === 524 || res.status === 504
+              ? " The server took too long — check that LiteLLM is reachable from the API container (LITELLM_BASE_URL) or try a simpler query."
+              : "";
+          throw new Error(`Chat failed: ${res.status}${hint}`);
+        }
 
         for await (const evt of parseChatSse(res)) {
           if (evt.event === "status") {
             const msg = (evt.data as { message?: unknown })?.message;
-            if (msg != null) {
+            if (msg != null && isThinkingEnabled()) {
               thinkingLog.push(toDisplayString(msg));
               patchAssistant({
                 content: sanitizeAssistantContent(assistant),
@@ -465,7 +539,7 @@ export default function HomePage() {
       });
       setLoading(false);
     },
-    [input, chain, loading, activeId, getActiveConversation, walletAddress, settings.swapExecutionMode],
+    [input, chain, loading, activeId, getActiveConversation, walletAddress, settings.swapExecutionMode, messages],
   );
 
   function handleNewChat() {
@@ -508,6 +582,11 @@ export default function HomePage() {
     }
   }
 
+  function handleInsertCommand(cmd: McpCommand) {
+    setInput(commandHandle(cmd.tool));
+    requestAnimationFrame(() => chatInputRef.current?.focus());
+  }
+
   function handleRetry(userContent: string) {
     sendChat(userContent);
   }
@@ -536,6 +615,16 @@ export default function HomePage() {
     );
   }
 
+  const swapMessageIndex =
+    swapFlow != null
+      ? messages.findLastIndex((m) => {
+          if (m.role !== "assistant" || m.result?.route !== "intent-swap") return false;
+          const quoteId = (m.result.output as { display?: { quoteId?: string } } | undefined)?.display
+            ?.quoteId;
+          return quoteId === swapFlow.quoteId;
+        })
+      : -1;
+
   return (
     <div className="relative flex h-dvh pocket-app-bg">
       <ThemeSync theme={settings.theme} />
@@ -554,9 +643,9 @@ export default function HomePage() {
         <header className="relative z-30 shrink-0 border-b border-pocket-border/80 pocket-glass">
           <div className="absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-pocket-cyan/40 to-transparent" />
           <div
-            className={`flex items-center justify-between gap-4 px-4 sm:px-6 ${messages.length > 0 ? "py-2.5" : "py-3"}`}
+            className={`flex flex-col gap-3 px-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:px-6 ${messages.length > 0 ? "py-2.5" : "py-3"}`}
           >
-            <div className="flex min-w-0 items-center gap-3">
+            <div className="flex min-w-0 shrink-0 items-center gap-3">
               {!settings.sidebarOpen && (
                 <button
                   type="button"
@@ -575,7 +664,15 @@ export default function HomePage() {
                 )}
               </div>
             </div>
-            <div className="flex items-center gap-2">
+
+            <CommandsBar
+              onInsertCommand={handleInsertCommand}
+              disabled={loading}
+              walletConnected={Boolean(walletAddress)}
+              chain={chain}
+            />
+
+            <div className="flex shrink-0 items-center justify-end gap-2 sm:ml-0">
               {swapFlow && (
                 <SwapStatusChip flow={swapFlow} onClick={openSwapConfirm} />
               )}
@@ -626,6 +723,9 @@ export default function HomePage() {
                       walletConnected={Boolean(walletAddress)}
                       compactTop={compactTop}
                       onConfirmSwap={handleConfirmSwap}
+                      swapFlow={i === swapMessageIndex ? swapFlow ?? undefined : undefined}
+                      onOpenSwapConfirm={openSwapConfirm}
+                      onDismissSwapFlow={() => setSwapFlow(null)}
                       onRetry={
                         m.role === "assistant" && prevUser
                           ? () => handleRetry(prevUser.content)
@@ -634,6 +734,15 @@ export default function HomePage() {
                     />
                   );
                 })}
+                {swapFlow && swapMessageIndex === -1 && (
+                  <div className="mt-5 animate-fade-in">
+                    <SwapStatusBox
+                      flow={swapFlow}
+                      onOpenConfirm={openSwapConfirm}
+                      onDismiss={() => setSwapFlow(null)}
+                    />
+                  </div>
+                )}
                 <div ref={messagesEndRef} className="h-px" aria-hidden />
               </div>
             )}
@@ -651,36 +760,24 @@ export default function HomePage() {
                 <ToolsStatusPanel apiUrl={API_URL} />
               </div>
             )}
-            {!loading &&
-              messages.length > 0 &&
-              messages[messages.length - 1]?.role === "assistant" &&
-              !input.trim() && (
-                <FollowUpChips
-                  onSelect={(s) => sendChat(s)}
-                  disabled={loading}
-                  walletConnected={Boolean(walletAddress)}
-                />
-              )}
-            {swapFlow && (
-              <SwapStatusBox
-                flow={swapFlow}
-                onOpenConfirm={openSwapConfirm}
-                onDismiss={() => setSwapFlow(null)}
-              />
-            )}
             <SwapExecutionModePicker
               value={settings.swapExecutionMode}
               onChange={(swapExecutionMode) => handleSettingsChange({ swapExecutionMode })}
               disabled={loading}
             />
             <ChatInput
+              ref={chatInputRef}
               value={input}
               onChange={setInput}
               onSend={() => sendChat()}
               onStop={stopGeneration}
               loading={loading}
               disabled={loading}
-              placeholder="Ask about any Pocket chain…"
+              placeholder={
+                input.trim().startsWith("@")
+                  ? "Add your message after the command…"
+                  : "Ask about any Pocket chain…"
+              }
             />
           </div>
         </footer>
@@ -737,18 +834,31 @@ export default function HomePage() {
               prev && prev.phase !== "done" ? { ...prev, phase: "quoted" } : prev,
             );
           }}
-          onComplete={({ txHash, status }) => {
-            const statusLine = status ? ` Status: ${status}.` : "";
-            const hashLine = txHash ? `\nTx: \`${txHash}\`` : "";
-            setMessages((m) => [
-              ...m,
-              {
-                role: "assistant",
-                content: `Swap submitted.${statusLine}${hashLine}`,
-              },
-            ]);
+          onComplete={({ txHash, status, intentId }) => {
+            const normalized = status?.toLowerCase() ?? "";
+            const completed = ["completed", "success", "successful", "filled", "executed"].includes(
+              normalized,
+            );
+            const failed = ["failed", "error", "reverted", "cancelled", "canceled"].includes(
+              normalized,
+            );
+            let content: string;
+            if (completed) {
+              content = `Swap completed${txHash ? ` — tx: \`${txHash}\`` : ""}.`;
+            } else if (failed) {
+              content = `Swap failed (${status ?? "unknown"}). Request a new quote to try again.`;
+            } else {
+              content =
+                `Swap submitted to relayer${status ? ` (${status})` : ""}.` +
+                (txHash ? `\nTx: \`${txHash}\`` : "") +
+                `\nIntent: \`${intentId ?? "unknown"}\`` +
+                (txHash
+                  ? ""
+                  : "\nGasless fills can take up to a minute — ask **did that swap succeed?** to check.");
+            }
+            setMessages((m) => [...m, { role: "assistant", content }]);
             setSwapFlow((prev) =>
-              prev ? { ...prev, phase: "done", txHash } : null,
+              prev ? { ...prev, phase: failed ? "error" : "done", txHash, error: failed ? status : undefined } : null,
             );
             setPendingSwap(null);
           }}

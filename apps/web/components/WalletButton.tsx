@@ -9,24 +9,17 @@ import {
   MAINNET_WC_CHAIN_IDS,
   slugFromChainId,
 } from "../lib/chain-config";
-import { getSessionId, ensureSessionToken, sessionHeaders } from "../lib/session";
+import { ensureSessionToken } from "../lib/session";
+import { syncWalletSession } from "../lib/wallet-session";
 import { getWcProjectId } from "../lib/wallet-config";
+import { connectInjectedWallet } from "../lib/wallet-connect";
 import type { EthereumProvider } from "../lib/ethereum";
 
 export type WalletConnectionType = "injected" | "walletconnect";
 
-let wcProvider: EthereumProvider | undefined;
+export { connectInjectedWallet } from "../lib/wallet-connect";
 
-export async function connectInjectedWallet(): Promise<{ address: string; provider: NonNullable<Window["ethereum"]> }> {
-  if (!window.ethereum) {
-    throw new Error("Install MetaMask or another injected wallet");
-  }
-  const provider = window.ethereum;
-  const accounts = (await provider.request({ method: "eth_requestAccounts" })) as string[];
-  const address = accounts[0];
-  if (!address) throw new Error("No accounts returned");
-  return { address, provider };
-}
+let wcProvider: EthereumProvider | undefined;
 
 export async function connectWalletConnect(): Promise<{ address: string; provider: NonNullable<Window["ethereum"]> }> {
   const projectId = await getWcProjectId();
@@ -170,16 +163,7 @@ export function WalletButton({
       if (!chainSlug) {
         throw new Error(`Unsupported wallet chain (ID ${chainId}). Switch to a Pocket-supported network.`);
       }
-      const sid = getSessionId();
-      await fetch(`${apiUrl}/wallet/session`, {
-        method: "POST",
-        headers: sessionHeaders({ "Content-Type": "application/json" }, sid),
-        body: JSON.stringify({
-          sessionId: sid,
-          address,
-          chainSlug,
-        }),
-      });
+      await syncWalletSession(apiUrl, address, chainSlug);
       onConnected(address, mode, chainSlug, chainId);
     } catch (err) {
       alert(err instanceof Error ? err.message : String(err));

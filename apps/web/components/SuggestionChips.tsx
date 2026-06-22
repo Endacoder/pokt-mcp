@@ -1,4 +1,5 @@
 import {
+  FEATURE_SUGGESTIONS,
   READ_SUGGESTIONS,
   WALLET_READ_SUGGESTIONS,
   WRITE_SUGGESTIONS,
@@ -9,9 +10,12 @@ import { AgentMark } from "./brand/AgentMark";
 import { BrandWordmark } from "./brand/BrandWordmark";
 
 const FEATURES = [
-  { label: "MCP tools", desc: "agent-native RPC" },
-  { label: "60+ chains", desc: "Pocket Network" },
-  { label: "Wallet agent", desc: "read & write ops" },
+  { label: "Wallet health", desc: "fees & portfolio" },
+  { label: "Token research", desc: "holders & volume" },
+  { label: "Scam detector", desc: "rug pull scan" },
+  { label: "DeFi monitor", desc: "positions & health" },
+  { label: "DAO tracker", desc: "proposals & votes" },
+  { label: "Node operator", desc: "relays & earnings" },
 ];
 
 export function SuggestionChips({
@@ -60,6 +64,15 @@ export function SuggestionChips({
       </div>
 
       <div className="w-full max-w-lg space-y-5">
+        <SuggestionGroup
+          label="Seven-feature suite"
+          delay={0.16}
+          suggestions={FEATURE_SUGGESTIONS.filter(
+            (s) => !s.requiresWallet || walletConnected,
+          )}
+          onSelect={onSelect}
+          disabled={disabled}
+        />
         <SuggestionGroup
           label="Read queries"
           delay={0.2}

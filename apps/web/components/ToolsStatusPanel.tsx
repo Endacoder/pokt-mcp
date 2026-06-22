@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { fetchChains } from "../lib/api";
+import { fetchChains, fetchMcpEnv } from "../lib/api";
 import { INTENT_MCP_TOOLS } from "../lib/intent-mcp-config";
 
 const POKT_MCP_TOOLS = [
@@ -32,8 +32,7 @@ export function ToolsStatusPanel({ apiUrl }: { apiUrl: string }) {
           return "ok" as const;
         })
         .catch(() => "error" as const),
-      fetch("/api/mcp-env")
-        .then((r) => (r.ok ? r.json() : null))
+      fetchMcpEnv(apiUrl)
         .then((data) => {
           if (data?.intentMcp) {
             setIntentMcpConfigured(data.intentMcp.configured ?? false);

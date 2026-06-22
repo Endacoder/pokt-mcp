@@ -1,6 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useRef } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef } from "react";
+import { hasSendableContent } from "../lib/mcp-commands";
+
+export type ChatInputHandle = {
+  focus: () => void;
+};
 
 function SendIcon() {
   return (
@@ -22,24 +27,32 @@ function StopIcon() {
   );
 }
 
-export function ChatInput({
-  value,
-  onChange,
-  onSend,
-  onStop,
-  loading,
-  disabled,
-  placeholder,
-}: {
-  value: string;
-  onChange: (value: string) => void;
-  onSend: () => void;
-  onStop?: () => void;
-  loading?: boolean;
-  disabled?: boolean;
-  placeholder?: string;
-}) {
+export const ChatInput = forwardRef<
+  ChatInputHandle,
+  {
+    value: string;
+    onChange: (value: string) => void;
+    onSend: () => void;
+    onStop?: () => void;
+    loading?: boolean;
+    disabled?: boolean;
+    placeholder?: string;
+  }
+>(function ChatInput(
+  { value, onChange, onSend, onStop, loading, disabled, placeholder },
+  ref,
+) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useImperativeHandle(ref, () => ({
+    focus: () => {
+      const el = textareaRef.current;
+      if (!el) return;
+      el.focus();
+      const len = el.value.length;
+      el.setSelectionRange(len, len);
+    },
+  }));
 
   const resize = useCallback(() => {
     const el = textareaRef.current;
@@ -60,7 +73,7 @@ export function ChatInput({
     }
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      if (!disabled && !loading && value.trim()) onSend();
+      if (!disabled && !loading && hasSendableContent(value)) onSend();
     }
   }
 
@@ -94,7 +107,7 @@ export function ChatInput({
           <button
             type="button"
             onClick={onSend}
-            disabled={disabled || !value.trim()}
+            disabled={disabled || !hasSendableContent(value)}
             aria-label="Send message"
             className="mb-0.5 mr-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-pocket-gradient text-white shadow-pocket-accent transition-all hover:brightness-110 disabled:cursor-not-allowed disabled:bg-pocket-elevated disabled:shadow-none disabled:[&_path]:fill-pocket-muted"
           >
@@ -114,4 +127,4 @@ export function ChatInput({
       </p>
     </div>
   );
-}
+});

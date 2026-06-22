@@ -8,6 +8,7 @@ export const INTENT_MCP_TOOLS = [
   { name: "search_token", desc: "Resolve token address + decimals (required first)" },
   { name: "get_swap_quote", desc: "Best swap price for token pair" },
   { name: "compare_quotes", desc: "Compare multiple swap routes" },
+  { name: "get_quote_confirmation", desc: "personal_sign message before prepare_intent" },
   { name: "prepare_intent", desc: "Lock quote after user confirms (userConfirmed: true)" },
   { name: "simulate_intent", desc: "Pre-flight on-chain simulation" },
   { name: "get_signing_instructions", desc: "Wallet signing steps for user" },
@@ -15,7 +16,7 @@ export const INTENT_MCP_TOOLS = [
   { name: "get_intent_status", desc: "Poll until completed or failed" },
 ] as const;
 
-export const INTENT_MCP_AGENT_GUIDE_SUMMARY = `Swap workflow: list_supported_chains → search_token → get_swap_quote → user confirms → prepare_intent(userConfirmed: true) → get_signing_instructions → submit_signed_intent → get_intent_status. Never invent token addresses. Quotes expire in 60s.`;
+export const INTENT_MCP_AGENT_GUIDE_SUMMARY = `Swap workflow: list_supported_chains → search_token → get_swap_quote → user confirms → get_quote_confirmation → personal_sign → prepare_intent(confirmationSignature) → get_signing_instructions → submit_signed_intent → get_intent_status. Never invent token addresses. Quotes expire in 60s.`;
 
 export const INTENT_MCP_DEFAULT_REMOTE_URL = "https://mcp.metalift.ai/mcp";
 

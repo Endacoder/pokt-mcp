@@ -7,6 +7,33 @@ export type Suggestion = {
   requiresWallet?: boolean;
 };
 
+export const FEATURE_SUGGESTIONS: Suggestion[] = [
+  {
+    label: "Wallet health",
+    text: "Wallet health for 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
+    icon: "🩺",
+  },
+  { label: "Research USDC", text: "Research USDC on Ethereum", icon: "🔬" },
+  {
+    label: "Explain contract",
+    text: "Explain contract 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48 on eth",
+    icon: "📜",
+  },
+  { label: "UNI proposals", text: "Active UNI governance proposals", icon: "🗳" },
+  {
+    label: "Scam scan",
+    text: "Is 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48 a scam?",
+    icon: "🛡",
+  },
+  {
+    label: "DeFi positions",
+    text: "DeFi positions for 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
+    icon: "📊",
+    requiresWallet: true,
+  },
+  { label: "Node operator", text: "Pocket node operator status", icon: "⚡" },
+];
+
 export const READ_SUGGESTIONS: Suggestion[] = [
   { label: "Base block", text: "Latest block on Base", icon: "⛓" },
   { label: "List chains", text: "List all Pocket chains", icon: "🌐" },

@@ -50,5 +50,19 @@ export async function proxyToApi(request: NextRequest, pathSegments: string[]): 
     init.duplex = "half";
   }
 
-  return fetch(target, init);
+  const upstream = await fetch(target, init);
+  const contentType = upstream.headers.get("content-type") ?? "";
+  if (contentType.includes("text/event-stream") && upstream.body) {
+    const outHeaders = new Headers();
+    for (const [name, value] of upstream.headers.entries()) {
+      if (HOP_BY_HOP.has(name.toLowerCase())) continue;
+      outHeaders.set(name, value);
+    }
+    outHeaders.set("Cache-Control", "no-cache, no-transform");
+    outHeaders.set("Connection", "keep-alive");
+    outHeaders.set("X-Accel-Buffering", "no");
+    return new Response(upstream.body, { status: upstream.status, headers: outHeaders });
+  }
+
+  return upstream;
 }

@@ -15,27 +15,13 @@ import {
   type McpServerEntry,
   type McpTransport,
 } from "../lib/mcp-config";
+import { fetchMcpEnv, type McpEnvStatus } from "../lib/api";
+import { getApiUrl } from "../lib/api-url";
 import { isIntentServerEntry } from "../lib/intent-mcp-config";
 
 type ConnectionMap = Record<string, { status: McpConnectionStatus; message?: string }>;
 
-type McpEnvStatus = {
-  llmConfigured: boolean;
-  agentLoopEnabled: boolean;
-  warnings: string[];
-  stdioEnv?: Record<string, string>;
-  intentMcp?: {
-    enabled: boolean;
-    configured: boolean;
-    mode?: "mcp-remote" | "stdio-local" | "sse";
-    stdioEnv?: Record<string, string>;
-    hasApiKey?: boolean;
-    hasCommand?: boolean;
-    hasSseUrl?: boolean;
-    remoteUrl?: string;
-    serverEntry?: McpServerEntry;
-  };
-};
+const API_URL = getApiUrl();
 
 export function McpConfigPanel() {
   const [servers, setServers] = useState<McpServerEntry[]>([]);
@@ -54,11 +40,10 @@ export function McpConfigPanel() {
 
   useEffect(() => {
     setServers(loadAndPersistMcpServers());
-    fetch("/api/mcp-env")
-      .then((r) => (r.ok ? r.json() : null))
+    fetchMcpEnv(API_URL)
       .then((data) => {
         if (!data) return;
-        setMcpEnv(data as McpEnvStatus);
+        setMcpEnv(data);
 
         const serverEntry = data.intentMcp?.serverEntry as McpServerEntry | undefined;
         if (!serverEntry) return;

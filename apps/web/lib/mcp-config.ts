@@ -37,6 +37,7 @@ export function buildMcpStdioEnv(
     RPC_METHOD_DENYLIST: env.RPC_METHOD_DENYLIST ?? "personal_importRawKey,eth_sign",
     FEATURE_NL_LLM: env.FEATURE_NL_LLM ?? "true",
     FEATURE_AGENT_LOOP: env.FEATURE_AGENT_LOOP ?? "false",
+    FEATURE_THINKING: env.FEATURE_THINKING ?? "false",
     AGENT_MAX_STEPS: env.AGENT_MAX_STEPS ?? "8",
     LLM_PROVIDER: env.LLM_PROVIDER ?? "litellm",
   };

@@ -47,7 +47,11 @@ export function SwapStatusBox({
   );
   const expired = isQuoteExpired(flow.display.expiresAt);
   const activeIdx = swapStepIndex(flow.phase);
-  const inProgress = flow.phase === "preparing" || flow.phase === "signing" || flow.phase === "submitting";
+  const inProgress =
+    flow.phase === "preparing" ||
+    flow.phase === "signing" ||
+    flow.phase === "submitting" ||
+    flow.phase === "settling";
   const showConfirm =
     (flow.phase === "quoted" || flow.phase === "confirm" || flow.phase === "error") &&
     !expired &&
@@ -202,7 +206,11 @@ export function SwapStatusChip({
   flow: SwapFlowState;
   onClick?: () => void;
 }) {
-  const inProgress = flow.phase === "preparing" || flow.phase === "signing" || flow.phase === "submitting";
+  const inProgress =
+    flow.phase === "preparing" ||
+    flow.phase === "signing" ||
+    flow.phase === "submitting" ||
+    flow.phase === "settling";
 
   return (
     <button

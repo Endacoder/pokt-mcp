@@ -1,7 +1,10 @@
 "use client";
 
 import { toDisplayString } from "../lib/format";
+import type { SwapFlowState } from "../lib/swap-status";
 import { SwapQuoteCard } from "./SwapQuoteCard";
+import { SwapStatusBox } from "./SwapStatusBox";
+import { FeatureResultCard, FEATURE_CARD_METHODS } from "./FeatureCards";
 
 type RpcIntent = {
   method: string;
@@ -56,11 +59,17 @@ export function ResultCard({
   error,
   walletConnected,
   onConfirmSwap,
+  swapFlow,
+  onOpenSwapConfirm,
+  onDismissSwapFlow,
 }: {
   data?: ResultPayload;
   error?: unknown;
   walletConnected?: boolean;
   onConfirmSwap?: (swap: { quoteId: string; display: SwapQuoteDisplayPayload }) => void;
+  swapFlow?: SwapFlowState;
+  onOpenSwapConfirm?: () => void;
+  onDismissSwapFlow?: () => void;
 }) {
   if (error) {
     return (
@@ -84,6 +93,16 @@ export function ResultCard({
   if (data.route === "intent-swap") {
     const display = (data.output as { display?: Record<string, unknown> } | undefined)?.display;
     if (display && typeof display.chainName === "string") {
+      const quoteId = typeof display.quoteId === "string" ? display.quoteId : undefined;
+      if (swapFlow && quoteId && swapFlow.quoteId === quoteId) {
+        return (
+          <SwapStatusBox
+            flow={swapFlow}
+            onOpenConfirm={onOpenSwapConfirm}
+            onDismiss={onDismissSwapFlow}
+          />
+        );
+      }
       return (
         <SwapQuoteCard
           display={display as SwapQuoteDisplayPayload}
@@ -106,6 +125,17 @@ export function ResultCard({
   const intent = data.intent;
   const output = data.output as { result?: unknown; chains?: Array<{ slug: string; name: string; chainId?: number }> } | undefined;
   if (!intent || output === undefined) return null;
+
+  if (FEATURE_CARD_METHODS.has(intent.method)) {
+    return (
+      <div className="space-y-2">
+        <FeatureResultCard method={intent.method} output={output} />
+        {data.latencyMs !== undefined && (
+          <p className="text-xs text-pocket-muted">{data.latencyMs}ms</p>
+        )}
+      </div>
+    );
+  }
 
   const chain = intent.chain;
   const latency = data.latencyMs !== undefined ? `${data.latencyMs}ms` : undefined;
@@ -260,17 +290,26 @@ export function ResultCard({
   }
 
 
-  if (intent.method === "__price_change_24h__" && output && typeof output === "object") {
+  if (
+    (intent.method === "__price_change_24h__" || intent.method === "__price_change__") &&
+    output &&
+    typeof output === "object"
+  ) {
     const change = output as {
       symbol?: string;
+      changePercent?: number;
       changePercent24h?: number;
       currentPriceUsd?: number;
+      period?: string;
     };
-    const pct = change.changePercent24h;
+    const pct = change.changePercent ?? change.changePercent24h;
+    const periodLabel = change.period ?? "24h";
     const sign = pct !== undefined && pct >= 0 ? "+" : "";
     return (
       <div className={resultCardClass}>
-        <p className="font-medium text-pocket-accent">{change.symbol ?? "Asset"} 24h change</p>
+        <p className="font-medium text-pocket-accent">
+          {change.symbol ?? "Asset"} {periodLabel} change
+        </p>
         <p className="text-pocket-foreground">
           {pct !== undefined ? `${sign}${pct.toFixed(2)}%` : "—"}
           {change.currentPriceUsd !== undefined && (

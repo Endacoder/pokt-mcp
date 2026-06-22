@@ -7,7 +7,9 @@ import { ToolCallsSummary, visibleToolCalls } from "./ToolCallsSummary";
 import { ThinkingPanel } from "./ThinkingPanel";
 import { TypingIndicator } from "./TypingIndicator";
 import { isPlaceholderAssistantContent, sanitizeAssistantContent } from "../lib/tool-calls";
+import { isThinkingEnabled } from "../lib/feature-flags";
 import { BRAND } from "../lib/brand";
+import type { SwapFlowState } from "../lib/swap-status";
 import type { Message } from "../lib/types";
 
 type SwapConfirmPayload = {
@@ -38,6 +40,9 @@ export function ChatMessage({
   onRetry,
   walletConnected,
   onConfirmSwap,
+  swapFlow,
+  onOpenSwapConfirm,
+  onDismissSwapFlow,
   compactTop = false,
 }: {
   message: Message;
@@ -46,6 +51,9 @@ export function ChatMessage({
   onRetry?: () => void;
   walletConnected?: boolean;
   onConfirmSwap?: (swap: SwapConfirmPayload) => void;
+  swapFlow?: SwapFlowState;
+  onOpenSwapConfirm?: () => void;
+  onDismissSwapFlow?: () => void;
   /** Tighter spacing when consecutive messages share the same role. */
   compactTop?: boolean;
 }) {
@@ -68,7 +76,7 @@ export function ChatMessage({
     !(message.role === "assistant" && (message.thinkingLog?.length ?? 0) > 0);
 
   const thinkingLines = message.role === "assistant" ? (message.thinkingLog ?? []) : [];
-  const showThinking = !isUser && message.streaming && thinkingLines.length > 0;
+  const showThinking = isThinkingEnabled() && !isUser && message.streaming && thinkingLines.length > 0;
   const isStreamingText =
     !isUser && message.streaming && Boolean(displayContent) && !message.interrupted;
 
@@ -133,6 +141,9 @@ export function ChatMessage({
                   data={message.result}
                   walletConnected={walletConnected}
                   onConfirmSwap={onConfirmSwap}
+                  swapFlow={swapFlow}
+                  onOpenSwapConfirm={onOpenSwapConfirm}
+                  onDismissSwapFlow={onDismissSwapFlow}
                 />
               )}
               {!message.streaming && (
