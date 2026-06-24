@@ -1,5 +1,6 @@
 import { listChains, listMethodsForProtocol } from "@pokt-mcp/pocket-client";
-import type { LlmConfig, RpcIntent, SessionContext } from "@pokt-mcp/shared";
+import type { ChatHistoryMessage, LlmConfig, LlmStreamCallbacks, RpcIntent, SessionContext } from "@pokt-mcp/shared";
+import { loadLlmRequestTimeoutMs, streamOpenAiChatCompletion } from "@pokt-mcp/shared";
 import { formatKnownTokensForPrompt } from "./tokens.js";
 import { parseJsonFromModelText } from "./parse-json.js";
 
@@ -17,7 +18,9 @@ Rules:
 - Prefer read actions unless the user explicitly asks to send or transfer tokens
 - Never invent private keys or wallet secrets
 - params must be a valid JSON-RPC params array
-- For 24h price change (e.g. "BTC change in 24 hours", "avg change in eth last day"), use method "__price_change_24h__" with params [coingeckoId, symbol]
+- For price change over a period (24h, 7d, 14d, 30d, 1y), use method "__price_change__" with params [coingeckoId, symbol, period]
+- Only those five periods are valid for price change. Do not map unsupported durations (e.g. "in 3 days", "in 12 hours") to a different period from session context
+- Legacy 24h-only: "__price_change_24h__" with params [coingeckoId, symbol] is also accepted
 - For token/coin spot prices (e.g. "price of ETH", "how much is POL worth"), use method "__spot_price__" with params [coingeckoId, symbol, vsCurrency, vsSymbol] — use vsCurrency usd/btc/eth only (NOT usdt/usdc); never use eth_getBlockByNumber or other RPC for prices
 - POLY/poly/polygon/matic refer to Polygon's native POL token (coingeckoId: polygon-ecosystem-token), not Polymath
 - For ERC-20 token balances use eth_call with balanceOf(address) calldata: 0x70a08231 + padded address (32 bytes)
@@ -77,6 +80,16 @@ function formatSessionContext(context?: SessionContext): string {
       `Last query: ${context.lastQuery.method} on ${context.lastQuery.chain} (subject: ${context.lastQuery.subject})`,
     );
   }
+  if (context.lastMarketQuery) {
+    parts.push(
+      `Last market query: ${context.lastMarketQuery.symbol} (${context.lastMarketQuery.kind}${context.lastMarketQuery.period ? `, ${context.lastMarketQuery.period}` : ""})`,
+    );
+  }
+  if (context.lastTransferQuery) {
+    parts.push(
+      `Last transfer query: ${context.lastTransferQuery.tokenSymbol} for ${context.lastTransferQuery.walletAddress} on ${context.lastTransferQuery.chain}`,
+    );
+  }
   if (parts.length === 0) return "";
   return `\nSession context:\n${parts.join("\n")}`;
 }
@@ -99,42 +112,80 @@ export async function parseWithLlm(
   chain: string,
   config: LlmConfig,
   context?: SessionContext,
+  history?: ChatHistoryMessage[],
+  stream?: LlmStreamCallbacks,
 ): Promise<RpcIntent | null> {
   const sessionBlock = formatSessionContext(context);
+  const historyMessages: Array<{ role: "user" | "assistant"; content: string }> = (history ?? []).map(
+    (msg) => ({ role: msg.role, content: msg.content }),
+  );
+
+  const body = {
+    model: config.model,
+    messages: [
+      { role: "system", content: buildLlmSystemPrompt() },
+      ...historyMessages,
+      {
+        role: "user",
+        content: `Default chain: ${chain}${sessionBlock}\nQuery: ${query}`,
+      },
+    ],
+    response_format: { type: "json_object" },
+    temperature: 0,
+    max_tokens: 512,
+  };
+
+  if (stream?.onReasoning) {
+    const completion = streamOpenAiChatCompletion(config, body);
+    let content = "";
+    while (true) {
+      const step = await completion.next();
+      if (step.done) {
+        content = step.value.content ?? content;
+        break;
+      }
+      if (step.value.type === "reasoning") {
+        stream.onReasoning(step.value.text);
+      } else {
+        content += step.value.text;
+      }
+    }
+    return parseIntentFromLlmContent(content);
+  }
+
   const response = await fetch(`${config.baseUrl}/chat/completions`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${config.apiKey}`,
     },
-    body: JSON.stringify({
-      model: config.model,
-      messages: [
-        { role: "system", content: buildLlmSystemPrompt() },
-        {
-          role: "user",
-          content: `Default chain: ${chain}${sessionBlock}\nQuery: ${query}`,
-        },
-      ],
-      response_format: { type: "json_object" },
-      temperature: 0,
-    }),
+    signal: AbortSignal.timeout(loadLlmRequestTimeoutMs()),
+    body: JSON.stringify(body),
   });
 
   if (!response.ok) {
-    const body = await response.text();
-    if (response.status === 400 && /invalid model/i.test(body)) {
+    const errBody = await response.text();
+    if (response.status === 400 && /invalid model/i.test(errBody)) {
       throw new Error(
         `LLM model "${config.model}" is not available on ${config.provider}. Set LLM_MODEL (or LITELLM_MODEL) to a model your proxy supports — call ${config.baseUrl}/models to list options.`,
       );
     }
-    throw new Error(`LLM request failed (${response.status}): ${body.slice(0, 200)}`);
+    if (response.status === 400 && /contextwindowexceeded|context length|maximum context/i.test(errBody)) {
+      throw new Error(
+        `LLM context window exceeded for model "${config.model}". Use a larger-context model, a non-thinking variant, or shorten chat history.`,
+      );
+    }
+    throw new Error(`LLM request failed (${response.status}): ${errBody.slice(0, 200)}`);
   }
 
   const payload = (await response.json()) as {
     choices?: Array<{ message?: { content?: string } }>;
   };
   const content = payload.choices?.[0]?.message?.content;
+  return parseIntentFromLlmContent(content ?? null);
+}
+
+function parseIntentFromLlmContent(content: string | null): RpcIntent | null {
   if (!content) {
     return null;
   }

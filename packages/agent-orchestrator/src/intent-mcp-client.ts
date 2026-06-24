@@ -6,12 +6,24 @@ import type {
   SigningInstructions,
   SubmitIntentResponse,
 } from "./intent-swap-types.js";
+import {
+  isRetryableIntentMcpTransportError,
+  withIntentMcpTransportRetry,
+} from "./intent-mcp-transport.js";
 
 export interface TokenHit {
   address: string;
   symbol: string;
   decimals: number;
   name?: string;
+}
+
+export interface QuoteConfirmation {
+  quoteId: string;
+  walletAddress: string;
+  quoteCommitment: string;
+  message: string;
+  expiresAt: string;
 }
 
 export interface SanitizedQuote {
@@ -34,10 +46,25 @@ export interface SanitizedQuote {
 export interface IntentMcpSwapClient {
   searchToken(chainId: number, query: string): Promise<TokenHit | null>;
   getSwapQuote(body: Record<string, unknown>): Promise<SanitizedQuote>;
-  prepareIntent(quoteId: string, walletAddress: string): Promise<PrepareIntentResponse>;
+  getGaslessSwapQuote(body: Record<string, unknown>): Promise<SanitizedQuote>;
+  getQuoteConfirmation(quoteId: string, walletAddress: string): Promise<QuoteConfirmation>;
+  prepareIntent(
+    quoteId: string,
+    walletAddress: string,
+    options?: { confirmationSignature?: string; acknowledgeUserPaidGas?: boolean },
+  ): Promise<PrepareIntentResponse>;
   getSigningInstructions(intentId: string): Promise<SigningInstructions>;
-  submitSignedIntent(intentId: string, signature: string): Promise<SubmitIntentResponse>;
+  submitSignedIntent(
+    intentId: string,
+    signature: string,
+    options?: { txHash?: string; walletAddress?: string },
+  ): Promise<SubmitIntentResponse>;
   getIntentStatus(intentId: string): Promise<Record<string, unknown>>;
+  syncPermitSigner(
+    intentId: string,
+    signature: string,
+    options?: { walletAddress?: string },
+  ): Promise<SubmitIntentResponse>;
   /** Release remote MCP session (no-op for REST client). */
   close(): Promise<void>;
 }
@@ -70,6 +97,30 @@ function parseToolJson<T>(content: unknown): T {
   }
 }
 
+export function unwrapSubmitResponse(data: Record<string, unknown>): SubmitIntentResponse {
+  const result = data.result;
+  if (result && typeof result === "object" && !Array.isArray(result)) {
+    return result as SubmitIntentResponse;
+  }
+  return data as SubmitIntentResponse;
+}
+
+export function unwrapStatusResponse(data: Record<string, unknown>): Record<string, unknown> {
+  const status = data.status;
+  if (status && typeof status === "object" && !Array.isArray(status)) {
+    return status as Record<string, unknown>;
+  }
+  return data;
+}
+
+export function unwrapInstructionsResponse(data: Record<string, unknown>): SigningInstructions {
+  const instructions = data.instructions;
+  if (instructions && typeof instructions === "object" && !Array.isArray(instructions)) {
+    return instructions as SigningInstructions;
+  }
+  return data as SigningInstructions;
+}
+
 class RestIntentMcpSwapClient implements IntentMcpSwapClient {
   private readonly client: IntentApiClient;
 
@@ -91,12 +142,43 @@ class RestIntentMcpSwapClient implements IntentMcpSwapClient {
     return data.quote;
   }
 
-  async prepareIntent(quoteId: string, walletAddress: string): Promise<PrepareIntentResponse> {
-    return this.client.post<PrepareIntentResponse>("/v1/intents/prepare", {
+  async getGaslessSwapQuote(body: Record<string, unknown>): Promise<SanitizedQuote> {
+    try {
+      const data = await this.client.post<{ quote: SanitizedQuote }>("/v1/quote/gasless", body);
+      return data.quote;
+    } catch {
+      const data = await this.client.post<{ quote: SanitizedQuote }>("/v1/quote", {
+        ...body,
+        executionMode: "gasless",
+      });
+      return data.quote;
+    }
+  }
+
+  async getQuoteConfirmation(quoteId: string, walletAddress: string): Promise<QuoteConfirmation> {
+    return this.client.post<QuoteConfirmation>("/v1/quotes/confirmation", {
+      quoteId,
+      walletAddress,
+    });
+  }
+
+  async prepareIntent(
+    quoteId: string,
+    walletAddress: string,
+    options?: { confirmationSignature?: string; acknowledgeUserPaidGas?: boolean },
+  ): Promise<PrepareIntentResponse> {
+    const body: Record<string, unknown> = {
       quoteId,
       userConfirmed: true,
       walletAddress,
-    });
+    };
+    if (options?.confirmationSignature) {
+      body.confirmationSignature = options.confirmationSignature;
+    }
+    if (options?.acknowledgeUserPaidGas) {
+      body.acknowledgeUserPaidGas = true;
+    }
+    return this.client.post<PrepareIntentResponse>("/v1/intents/prepare", body);
   }
 
   async getSigningInstructions(intentId: string): Promise<SigningInstructions> {
@@ -106,11 +188,15 @@ class RestIntentMcpSwapClient implements IntentMcpSwapClient {
     return data.instructions ?? (data as unknown as SigningInstructions);
   }
 
-  async submitSignedIntent(intentId: string, signature: string): Promise<SubmitIntentResponse> {
-    const data = await this.client.post<{ result: SubmitIntentResponse }>("/v1/intents/submit", {
-      intentId,
-      signature,
-    });
+  async submitSignedIntent(
+    intentId: string,
+    signature: string,
+    options?: { txHash?: string; walletAddress?: string },
+  ): Promise<SubmitIntentResponse> {
+    const body: Record<string, string> = { intentId, signature };
+    if (options?.txHash) body.txHash = options.txHash;
+    if (options?.walletAddress) body.walletAddress = options.walletAddress;
+    const data = await this.client.post<{ result: SubmitIntentResponse }>("/v1/intents/submit", body);
     return data.result ?? (data as unknown as SubmitIntentResponse);
   }
 
@@ -119,6 +205,20 @@ class RestIntentMcpSwapClient implements IntentMcpSwapClient {
       `/v1/intents/${encodeURIComponent(intentId)}`,
     );
     return data.status ?? (data as unknown as Record<string, unknown>);
+  }
+
+  async syncPermitSigner(
+    intentId: string,
+    signature: string,
+    options?: { walletAddress?: string },
+  ): Promise<SubmitIntentResponse> {
+    const body: Record<string, string> = { intentId, signature };
+    if (options?.walletAddress) body.walletAddress = options.walletAddress;
+    const data = await this.client.post<{ result: SubmitIntentResponse }>(
+      "/v1/intents/sync-permit-signer",
+      body,
+    );
+    return data.result ?? (data as unknown as SubmitIntentResponse);
   }
 
   async close(): Promise<void> {
@@ -136,6 +236,10 @@ class RemoteMcpIntentSwapClient implements IntentMcpSwapClient {
   private isSessionError(err: unknown): boolean {
     const message = err instanceof Error ? err.message : String(err);
     return /session not found|already initialized/i.test(message);
+  }
+
+  private shouldResetAndRetry(err: unknown): boolean {
+    return this.isSessionError(err) || isRetryableIntentMcpTransportError(err);
   }
 
   private async resetConnection(): Promise<void> {
@@ -183,15 +287,17 @@ class RemoteMcpIntentSwapClient implements IntentMcpSwapClient {
   }
 
   private async callTool<T>(name: string, args: Record<string, unknown>): Promise<T> {
-    try {
-      return await this.callToolOnce<T>(name, args);
-    } catch (err) {
-      if (this.isSessionError(err)) {
-        await this.resetConnection();
-        return this.callToolOnce<T>(name, args);
+    return withIntentMcpTransportRetry(async () => {
+      try {
+        return await this.callToolOnce<T>(name, args);
+      } catch (err) {
+        if (this.shouldResetAndRetry(err)) {
+          await this.resetConnection();
+          return this.callToolOnce<T>(name, args);
+        }
+        throw err;
       }
-      throw err;
-    }
+    });
   }
 
   private async callToolOnce<T>(name: string, args: Record<string, unknown>): Promise<T> {
@@ -219,24 +325,68 @@ class RemoteMcpIntentSwapClient implements IntentMcpSwapClient {
     return data.quote;
   }
 
-  async prepareIntent(quoteId: string, walletAddress: string): Promise<PrepareIntentResponse> {
-    return this.callTool<PrepareIntentResponse>("prepare_intent", {
+  async getGaslessSwapQuote(body: Record<string, unknown>): Promise<SanitizedQuote> {
+    const data = await this.callTool<{ quote: SanitizedQuote }>("get_gasless_swap_quote", body);
+    return data.quote;
+  }
+
+  async getQuoteConfirmation(quoteId: string, walletAddress: string): Promise<QuoteConfirmation> {
+    return this.callTool<QuoteConfirmation>("get_quote_confirmation", {
       quoteId,
-      userConfirmed: true,
       walletAddress,
     });
   }
 
-  async getSigningInstructions(intentId: string): Promise<SigningInstructions> {
-    return this.callTool<SigningInstructions>("get_signing_instructions", { intentId });
+  async prepareIntent(
+    quoteId: string,
+    walletAddress: string,
+    options?: { confirmationSignature?: string; acknowledgeUserPaidGas?: boolean },
+  ): Promise<PrepareIntentResponse> {
+    const args: Record<string, unknown> = {
+      quoteId,
+      userConfirmed: true,
+      walletAddress,
+    };
+    if (options?.confirmationSignature) {
+      args.confirmationSignature = options.confirmationSignature;
+    }
+    if (options?.acknowledgeUserPaidGas) {
+      args.acknowledgeUserPaidGas = true;
+    }
+    return this.callTool<PrepareIntentResponse>("prepare_intent", args);
   }
 
-  async submitSignedIntent(intentId: string, signature: string): Promise<SubmitIntentResponse> {
-    return this.callTool<SubmitIntentResponse>("submit_signed_intent", { intentId, signature });
+  async getSigningInstructions(intentId: string): Promise<SigningInstructions> {
+    const data = await this.callTool<Record<string, unknown>>("get_signing_instructions", { intentId });
+    return unwrapInstructionsResponse(data);
+  }
+
+  async submitSignedIntent(
+    intentId: string,
+    signature: string,
+    options?: { txHash?: string; walletAddress?: string },
+  ): Promise<SubmitIntentResponse> {
+    const args: Record<string, string> = { intentId, signature };
+    if (options?.txHash) args.txHash = options.txHash;
+    if (options?.walletAddress) args.walletAddress = options.walletAddress;
+    const data = await this.callTool<Record<string, unknown>>("submit_signed_intent", args);
+    return unwrapSubmitResponse(data);
   }
 
   async getIntentStatus(intentId: string): Promise<Record<string, unknown>> {
-    return this.callTool<Record<string, unknown>>("get_intent_status", { intentId });
+    const data = await this.callTool<Record<string, unknown>>("get_intent_status", { intentId });
+    return unwrapStatusResponse(data);
+  }
+
+  async syncPermitSigner(
+    intentId: string,
+    signature: string,
+    options?: { walletAddress?: string },
+  ): Promise<SubmitIntentResponse> {
+    const args: Record<string, string> = { intentId, signature };
+    if (options?.walletAddress) args.walletAddress = options.walletAddress;
+    const data = await this.callTool<Record<string, unknown>>("sync_permit_signer", args);
+    return unwrapSubmitResponse(data);
   }
 }
 

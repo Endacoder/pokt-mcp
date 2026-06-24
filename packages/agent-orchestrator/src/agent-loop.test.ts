@@ -11,6 +11,11 @@ const mockLlmConfig: LlmConfig = {
   enabled: true,
 };
 
+function sseResponse(chunks: unknown[]): Response {
+  const body = `${chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`).join("")}data: [DONE]\n\n`;
+  return new Response(body, { status: 200, headers: { "Content-Type": "text/event-stream" } });
+}
+
 describe("runAgentLoop", () => {
   const originalFetch = globalThis.fetch;
 
@@ -30,35 +35,30 @@ describe("runAgentLoop", () => {
     globalThis.fetch = vi.fn(async () => {
       callCount++;
       if (callCount === 1) {
-        return new Response(
-          JSON.stringify({
+        return sseResponse([
+          {
             choices: [
               {
-                message: {
-                  content: null,
+                delta: {
                   tool_calls: [
                     {
+                      index: 0,
                       id: "call_1",
                       type: "function",
-                      function: {
-                        name: "list_chains",
-                        arguments: "{}",
-                      },
+                      function: { name: "list_chains", arguments: "{}" },
                     },
                   ],
                 },
               },
             ],
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        );
+          },
+        ]);
       }
-      return new Response(
-        JSON.stringify({
-          choices: [{ message: { content: "Found 6 chains available." } }],
-        }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      );
+      return sseResponse([
+        {
+          choices: [{ delta: { content: "Found 6 chains available." } }],
+        },
+      ]);
     }) as typeof fetch;
 
     const events: Array<{ type: string; data: unknown }> = [];

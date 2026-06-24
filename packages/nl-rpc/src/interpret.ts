@@ -1,4 +1,5 @@
-import type { LlmConfig, RpcIntent } from "@pokt-mcp/shared";
+import type { LlmConfig, LlmStreamCallbacks, RpcIntent } from "@pokt-mcp/shared";
+import { loadLlmRequestTimeoutMs, streamOpenAiChatCompletion } from "@pokt-mcp/shared";
 import {
   assessGasPrice,
   formatGasAssessmentMessage,
@@ -98,28 +99,51 @@ export async function interpretQueryResult(
   intent: RpcIntent,
   output: unknown,
   config: LlmConfig,
+  stream?: LlmStreamCallbacks,
 ): Promise<string | null> {
   const facts = buildInterpretationFacts(intent, output);
   if (!facts) return null;
 
+  const body = {
+    model: config.model,
+    messages: [
+      { role: "system", content: INTERPRET_SYSTEM },
+      {
+        role: "user",
+        content: `User question: ${query}\n\nStructured facts (from on-chain RPC):\n${JSON.stringify(facts, null, 2)}`,
+      },
+    ],
+    temperature: 0.2,
+    max_tokens: 256,
+  };
+
   try {
+    if (stream?.onReasoning) {
+      const completion = streamOpenAiChatCompletion(config, body);
+      let content = "";
+      while (true) {
+        const step = await completion.next();
+        if (step.done) {
+          content = step.value.content ?? content;
+          break;
+        }
+        if (step.value.type === "reasoning") {
+          stream.onReasoning(step.value.text);
+        } else {
+          content += step.value.text;
+        }
+      }
+      return content.trim() || formatInterpretationFallback(query, intent, output);
+    }
+
     const response = await fetch(`${config.baseUrl}/chat/completions`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${config.apiKey}`,
       },
-      body: JSON.stringify({
-        model: config.model,
-        messages: [
-          { role: "system", content: INTERPRET_SYSTEM },
-          {
-            role: "user",
-            content: `User question: ${query}\n\nStructured facts (from on-chain RPC):\n${JSON.stringify(facts, null, 2)}`,
-          },
-        ],
-        temperature: 0.2,
-      }),
+      signal: AbortSignal.timeout(loadLlmRequestTimeoutMs()),
+      body: JSON.stringify(body),
     });
 
     if (!response.ok) {

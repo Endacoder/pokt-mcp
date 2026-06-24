@@ -14,6 +14,7 @@ const L2_SLUGS = new Set([
   "base",
   "arb-one",
   "opt",
+  "op",
   "linea",
   "scroll",
   "blast",

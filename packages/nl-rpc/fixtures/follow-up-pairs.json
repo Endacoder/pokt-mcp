@@ -1,0 +1,2014 @@
+[
+  {
+    "query": "how about for the week",
+    "sessionContext": {
+      "lastMarketQuery": {
+        "symbol": "BTC",
+        "coingeckoId": "bitcoin",
+        "kind": "priceChange",
+        "period": "24h"
+      }
+    },
+    "expectMethod": "__price_change__",
+    "expectParams": [
+      "bitcoin",
+      "BTC",
+      "7d"
+    ],
+    "id": "f-1"
+  },
+  {
+    "query": "what about for the week",
+    "sessionContext": {
+      "lastMarketQuery": {
+        "symbol": "BTC",
+        "coingeckoId": "bitcoin",
+        "kind": "priceChange",
+        "period": "24h"
+      }
+    },
+    "expectMethod": "__price_change__",
+    "expectParams": [
+      "bitcoin",
+      "BTC",
+      "7d"
+    ],
+    "id": "f-2"
+  },
+  {
+    "query": "and for the week",
+    "sessionContext": {
+      "lastMarketQuery": {
+        "symbol": "BTC",
+        "coingeckoId": "bitcoin",
+        "kind": "priceChange",
+        "period": "24h"
+      }
+    },
+    "expectMethod": "__price_change__",
+    "expectParams": [
+      "bitcoin",
+      "BTC",
+      "7d"
+    ],
+    "id": "f-3"
+  },
+  {
+    "query": "how about in a week",
+    "sessionContext": {
+      "lastMarketQuery": {
+        "symbol": "BTC",
+        "coingeckoId": "bitcoin",
+        "kind": "priceChange",
+        "period": "24h"
+      }
+    },
+    "expectMethod": "__price_change__",
+    "expectParams": [
+      "bitcoin",
+      "BTC",
+      "7d"
+    ],
+    "id": "f-4"
+  },
+  {
+    "query": "for the past week",
+    "sessionContext": {
+      "lastMarketQuery": {
+        "symbol": "BTC",
+        "coingeckoId": "bitcoin",
+        "kind": "priceChange",
+        "period": "24h"
+      }
+    },
+    "expectMethod": "__price_change__",
+    "expectParams": [
+      "bitcoin",
+      "BTC",
+      "7d"
+    ],
+    "id": "f-5"
+  },
+  {
+    "query": "past 7 days",
+    "sessionContext": {
+      "lastMarketQuery": {
+        "symbol": "BTC",
+        "coingeckoId": "bitcoin",
+        "kind": "priceChange",
+        "period": "24h"
+      }
+    },
+    "expectMethod": "__price_change__",
+    "expectParams": [
+      "bitcoin",
+      "BTC",
+      "7d"
+    ],
+    "id": "f-6"
+  },
+  {
+    "query": "last 7 days",
+    "sessionContext": {
+      "lastMarketQuery": {
+        "symbol": "BTC",
+        "coingeckoId": "bitcoin",
+        "kind": "priceChange",
+        "period": "24h"
+      }
+    },
+    "expectMethod": "__price_change__",
+    "expectParams": [
+      "bitcoin",
+      "BTC",
+      "7d"
+    ],
+    "id": "f-7"
+  },
+  {
+    "query": "over the last week",
+    "sessionContext": {
+      "lastMarketQuery": {
+        "symbol": "BTC",
+        "coingeckoId": "bitcoin",
+        "kind": "priceChange",
+        "period": "24h"
+      }
+    },
+    "expectMethod": "__price_change__",
+    "expectParams": [
+      "bitcoin",
+      "BTC",
+      "7d"
+    ],
+    "id": "f-8"
+  },
+  {
+    "query": "this week",
+    "sessionContext": {
+      "lastMarketQuery": {
+        "symbol": "BTC",
+        "coingeckoId": "bitcoin",
+        "kind": "priceChange",
+        "period": "24h"
+      }
+    },
+    "expectMethod": "__price_change__",
+    "expectParams": [
+      "bitcoin",
+      "BTC",
+      "7d"
+    ],
+    "id": "f-9"
+  },
+  {
+    "query": "the week",
+    "sessionContext": {
+      "lastMarketQuery": {
+        "symbol": "BTC",
+        "coingeckoId": "bitcoin",
+        "kind": "priceChange",
+        "period": "24h"
+      }
+    },
+    "expectMethod": "__price_change__",
+    "expectParams": [
+      "bitcoin",
+      "BTC",
+      "7d"
+    ],
+    "id": "f-10"
+  },
+  {
+    "query": "past week",
+    "sessionContext": {
+      "lastMarketQuery": {
+        "symbol": "BTC",
+        "coingeckoId": "bitcoin",
+        "kind": "priceChange",
+        "period": "24h"
+      }
+    },
+    "expectMethod": "__price_change__",
+    "expectParams": [
+      "bitcoin",
+      "BTC",
+      "7d"
+    ],
+    "id": "f-11"
+  },
+  {
+    "query": "last week",
+    "sessionContext": {
+      "lastMarketQuery": {
+        "symbol": "BTC",
+        "coingeckoId": "bitcoin",
+        "kind": "priceChange",
+        "period": "24h"
+      }
+    },
+    "expectMethod": "__price_change__",
+    "expectParams": [
+      "bitcoin",
+      "BTC",
+      "7d"
+    ],
+    "id": "f-12"
+  },
+  {
+    "query": "7 days",
+    "sessionContext": {
+      "lastMarketQuery": {
+        "symbol": "BTC",
+        "coingeckoId": "bitcoin",
+        "kind": "priceChange",
+        "period": "24h"
+      }
+    },
+    "expectMethod": "__price_change__",
+    "expectParams": [
+      "bitcoin",
+      "BTC",
+      "7d"
+    ],
+    "id": "f-13"
+  },
+  {
+    "query": "7d",
+    "sessionContext": {
+      "lastMarketQuery": {
+        "symbol": "BTC",
+        "coingeckoId": "bitcoin",
+        "kind": "priceChange",
+        "period": "24h"
+      }
+    },
+    "expectMethod": "__price_change__",
+    "expectParams": [
+      "bitcoin",
+      "BTC",
+      "7d"
+    ],
+    "id": "f-14"
+  },
+  {
+    "query": "in a week",
+    "sessionContext": {
+      "lastMarketQuery": {
+        "symbol": "BTC",
+        "coingeckoId": "bitcoin",
+        "kind": "priceChange",
+        "period": "24h"
+      }
+    },
+    "expectMethod": "__price_change__",
+    "expectParams": [
+      "bitcoin",
+      "BTC",
+      "7d"
+    ],
+    "id": "f-15"
+  },
+  {
+    "query": "for the week",
+    "sessionContext": {
+      "lastMarketQuery": {
+        "symbol": "BTC",
+        "coingeckoId": "bitcoin",
+        "kind": "priceChange",
+        "period": "24h"
+      }
+    },
+    "expectMethod": "__price_change__",
+    "expectParams": [
+      "bitcoin",
+      "BTC",
+      "7d"
+    ],
+    "id": "f-16"
+  },
+  {
+    "query": "how about the week",
+    "sessionContext": {
+      "lastMarketQuery": {
+        "symbol": "BTC",
+        "coingeckoId": "bitcoin",
+        "kind": "priceChange",
+        "period": "24h"
+      }
+    },
+    "expectMethod": "__price_change__",
+    "expectParams": [
+      "bitcoin",
+      "BTC",
+      "7d"
+    ],
+    "id": "f-17"
+  },
+  {
+    "query": "what about last month",
+    "sessionContext": {
+      "lastMarketQuery": {
+        "symbol": "ETH",
+        "coingeckoId": "ethereum",
+        "kind": "priceChange",
+        "period": "24h"
+      }
+    },
+    "expectMethod": "__price_change__",
+    "expectParams": [
+      "ethereum",
+      "ETH",
+      "30d"
+    ],
+    "id": "f-18"
+  },
+  {
+    "query": "for the month",
+    "sessionContext": {
+      "lastMarketQuery": {
+        "symbol": "ETH",
+        "coingeckoId": "ethereum",
+        "kind": "priceChange",
+        "period": "24h"
+      }
+    },
+    "expectMethod": "__price_change__",
+    "expectParams": [
+      "ethereum",
+      "ETH",
+      "30d"
+    ],
+    "id": "f-19"
+  },
+  {
+    "query": "past month",
+    "sessionContext": {
+      "lastMarketQuery": {
+        "symbol": "ETH",
+        "coingeckoId": "ethereum",
+        "kind": "priceChange",
+        "period": "24h"
+      }
+    },
+    "expectMethod": "__price_change__",
+    "expectParams": [
+      "ethereum",
+      "ETH",
+      "30d"
+    ],
+    "id": "f-20"
+  },
+  {
+    "query": "last month",
+    "sessionContext": {
+      "lastMarketQuery": {
+        "symbol": "ETH",
+        "coingeckoId": "ethereum",
+        "kind": "priceChange",
+        "period": "24h"
+      }
+    },
+    "expectMethod": "__price_change__",
+    "expectParams": [
+      "ethereum",
+      "ETH",
+      "30d"
+    ],
+    "id": "f-21"
+  },
+  {
+    "query": "30 days",
+    "sessionContext": {
+      "lastMarketQuery": {
+        "symbol": "ETH",
+        "coingeckoId": "ethereum",
+        "kind": "priceChange",
+        "period": "24h"
+      }
+    },
+    "expectMethod": "__price_change__",
+    "expectParams": [
+      "ethereum",
+      "ETH",
+      "30d"
+    ],
+    "id": "f-22"
+  },
+  {
+    "query": "past 30 days",
+    "sessionContext": {
+      "lastMarketQuery": {
+        "symbol": "ETH",
+        "coingeckoId": "ethereum",
+        "kind": "priceChange",
+        "period": "24h"
+      }
+    },
+    "expectMethod": "__price_change__",
+    "expectParams": [
+      "ethereum",
+      "ETH",
+      "30d"
+    ],
+    "id": "f-23"
+  },
+  {
+    "query": "over the last month",
+    "sessionContext": {
+      "lastMarketQuery": {
+        "symbol": "ETH",
+        "coingeckoId": "ethereum",
+        "kind": "priceChange",
+        "period": "24h"
+      }
+    },
+    "expectMethod": "__price_change__",
+    "expectParams": [
+      "ethereum",
+      "ETH",
+      "30d"
+    ],
+    "id": "f-24"
+  },
+  {
+    "query": "this month",
+    "sessionContext": {
+      "lastMarketQuery": {
+        "symbol": "ETH",
+        "coingeckoId": "ethereum",
+        "kind": "priceChange",
+        "period": "24h"
+      }
+    },
+    "expectMethod": "__price_change__",
+    "expectParams": [
+      "ethereum",
+      "ETH",
+      "30d"
+    ],
+    "id": "f-25"
+  },
+  {
+    "query": "in a month",
+    "sessionContext": {
+      "lastMarketQuery": {
+        "symbol": "ETH",
+        "coingeckoId": "ethereum",
+        "kind": "priceChange",
+        "period": "24h"
+      }
+    },
+    "expectMethod": "__price_change__",
+    "expectParams": [
+      "ethereum",
+      "ETH",
+      "30d"
+    ],
+    "id": "f-26"
+  },
+  {
+    "query": "the month",
+    "sessionContext": {
+      "lastMarketQuery": {
+        "symbol": "ETH",
+        "coingeckoId": "ethereum",
+        "kind": "priceChange",
+        "period": "24h"
+      }
+    },
+    "expectMethod": "__price_change__",
+    "expectParams": [
+      "ethereum",
+      "ETH",
+      "30d"
+    ],
+    "id": "f-27"
+  },
+  {
+    "query": "for the past month",
+    "sessionContext": {
+      "lastMarketQuery": {
+        "symbol": "ETH",
+        "coingeckoId": "ethereum",
+        "kind": "priceChange",
+        "period": "24h"
+      }
+    },
+    "expectMethod": "__price_change__",
+    "expectParams": [
+      "ethereum",
+      "ETH",
+      "30d"
+    ],
+    "id": "f-28"
+  },
+  {
+    "query": "what about 24h",
+    "sessionContext": {
+      "lastMarketQuery": {
+        "symbol": "BTC",
+        "coingeckoId": "bitcoin",
+        "kind": "priceChange",
+        "period": "24h"
+      }
+    },
+    "expectMethod": "__price_change__",
+    "expectParams": [
+      "bitcoin",
+      "BTC",
+      "24h"
+    ],
+    "id": "f-29"
+  },
+  {
+    "query": "last day",
+    "sessionContext": {
+      "lastMarketQuery": {
+        "symbol": "BTC",
+        "coingeckoId": "bitcoin",
+        "kind": "priceChange",
+        "period": "24h"
+      }
+    },
+    "expectMethod": "__price_change__",
+    "expectParams": [
+      "bitcoin",
+      "BTC",
+      "24h"
+    ],
+    "id": "f-30"
+  },
+  {
+    "query": "past day",
+    "sessionContext": {
+      "lastMarketQuery": {
+        "symbol": "BTC",
+        "coingeckoId": "bitcoin",
+        "kind": "priceChange",
+        "period": "24h"
+      }
+    },
+    "expectMethod": "__price_change__",
+    "expectParams": [
+      "bitcoin",
+      "BTC",
+      "24h"
+    ],
+    "id": "f-31"
+  },
+  {
+    "query": "since yesterday",
+    "sessionContext": {
+      "lastMarketQuery": {
+        "symbol": "BTC",
+        "coingeckoId": "bitcoin",
+        "kind": "priceChange",
+        "period": "24h"
+      }
+    },
+    "expectMethod": "__price_change__",
+    "expectParams": [
+      "bitcoin",
+      "BTC",
+      "24h"
+    ],
+    "id": "f-32"
+  },
+  {
+    "query": "24 hours",
+    "sessionContext": {
+      "lastMarketQuery": {
+        "symbol": "BTC",
+        "coingeckoId": "bitcoin",
+        "kind": "priceChange",
+        "period": "24h"
+      }
+    },
+    "expectMethod": "__price_change__",
+    "expectParams": [
+      "bitcoin",
+      "BTC",
+      "24h"
+    ],
+    "id": "f-33"
+  },
+  {
+    "query": "24h",
+    "sessionContext": {
+      "lastMarketQuery": {
+        "symbol": "BTC",
+        "coingeckoId": "bitcoin",
+        "kind": "priceChange",
+        "period": "24h"
+      }
+    },
+    "expectMethod": "__price_change__",
+    "expectParams": [
+      "bitcoin",
+      "BTC",
+      "24h"
+    ],
+    "id": "f-34"
+  },
+  {
+    "query": "how about eth",
+    "sessionContext": {
+      "lastMarketQuery": {
+        "symbol": "BTC",
+        "coingeckoId": "bitcoin",
+        "kind": "priceChange",
+        "period": "24h"
+      }
+    },
+    "expectMethod": "__price_change__",
+    "expectParams": [
+      "ethereum",
+      "ETH",
+      "24h"
+    ],
+    "id": "f-35"
+  },
+  {
+    "query": "what about eth",
+    "sessionContext": {
+      "lastMarketQuery": {
+        "symbol": "BTC",
+        "coingeckoId": "bitcoin",
+        "kind": "priceChange",
+        "period": "24h"
+      }
+    },
+    "expectMethod": "__price_change__",
+    "expectParams": [
+      "ethereum",
+      "ETH",
+      "24h"
+    ],
+    "id": "f-36"
+  },
+  {
+    "query": "how about sol",
+    "sessionContext": {
+      "lastMarketQuery": {
+        "symbol": "BTC",
+        "coingeckoId": "bitcoin",
+        "kind": "priceChange",
+        "period": "24h"
+      }
+    },
+    "expectMethod": "__price_change__",
+    "expectParams": [
+      "solana",
+      "SOL",
+      "24h"
+    ],
+    "id": "f-37"
+  },
+  {
+    "query": "what about sol",
+    "sessionContext": {
+      "lastMarketQuery": {
+        "symbol": "BTC",
+        "coingeckoId": "bitcoin",
+        "kind": "priceChange",
+        "period": "24h"
+      }
+    },
+    "expectMethod": "__price_change__",
+    "expectParams": [
+      "solana",
+      "SOL",
+      "24h"
+    ],
+    "id": "f-38"
+  },
+  {
+    "query": "how about doge",
+    "sessionContext": {
+      "lastMarketQuery": {
+        "symbol": "BTC",
+        "coingeckoId": "bitcoin",
+        "kind": "priceChange",
+        "period": "24h"
+      }
+    },
+    "expectMethod": "__price_change__",
+    "expectParams": [
+      "dogecoin",
+      "DOGE",
+      "24h"
+    ],
+    "id": "f-39"
+  },
+  {
+    "query": "what about doge",
+    "sessionContext": {
+      "lastMarketQuery": {
+        "symbol": "BTC",
+        "coingeckoId": "bitcoin",
+        "kind": "priceChange",
+        "period": "24h"
+      }
+    },
+    "expectMethod": "__price_change__",
+    "expectParams": [
+      "dogecoin",
+      "DOGE",
+      "24h"
+    ],
+    "id": "f-40"
+  },
+  {
+    "query": "how about avax",
+    "sessionContext": {
+      "lastMarketQuery": {
+        "symbol": "BTC",
+        "coingeckoId": "bitcoin",
+        "kind": "priceChange",
+        "period": "24h"
+      }
+    },
+    "expectMethod": "__price_change__",
+    "expectParams": [
+      "avalanche-2",
+      "AVAX",
+      "24h"
+    ],
+    "id": "f-41"
+  },
+  {
+    "query": "what about avax",
+    "sessionContext": {
+      "lastMarketQuery": {
+        "symbol": "BTC",
+        "coingeckoId": "bitcoin",
+        "kind": "priceChange",
+        "period": "24h"
+      }
+    },
+    "expectMethod": "__price_change__",
+    "expectParams": [
+      "avalanche-2",
+      "AVAX",
+      "24h"
+    ],
+    "id": "f-42"
+  },
+  {
+    "query": "how about bnb",
+    "sessionContext": {
+      "lastMarketQuery": {
+        "symbol": "BTC",
+        "coingeckoId": "bitcoin",
+        "kind": "priceChange",
+        "period": "24h"
+      }
+    },
+    "expectMethod": "__price_change__",
+    "expectParams": [
+      "binancecoin",
+      "BNB",
+      "24h"
+    ],
+    "id": "f-43"
+  },
+  {
+    "query": "what about bnb",
+    "sessionContext": {
+      "lastMarketQuery": {
+        "symbol": "BTC",
+        "coingeckoId": "bitcoin",
+        "kind": "priceChange",
+        "period": "24h"
+      }
+    },
+    "expectMethod": "__price_change__",
+    "expectParams": [
+      "binancecoin",
+      "BNB",
+      "24h"
+    ],
+    "id": "f-44"
+  },
+  {
+    "query": "how about matic",
+    "sessionContext": {
+      "lastMarketQuery": {
+        "symbol": "BTC",
+        "coingeckoId": "bitcoin",
+        "kind": "priceChange",
+        "period": "24h"
+      }
+    },
+    "expectMethod": "__price_change__",
+    "expectParams": [
+      "polygon-ecosystem-token",
+      "POL",
+      "24h"
+    ],
+    "id": "f-45"
+  },
+  {
+    "query": "what about matic",
+    "sessionContext": {
+      "lastMarketQuery": {
+        "symbol": "BTC",
+        "coingeckoId": "bitcoin",
+        "kind": "priceChange",
+        "period": "24h"
+      }
+    },
+    "expectMethod": "__price_change__",
+    "expectParams": [
+      "polygon-ecosystem-token",
+      "POL",
+      "24h"
+    ],
+    "id": "f-46"
+  },
+  {
+    "query": "how about link",
+    "sessionContext": {
+      "lastMarketQuery": {
+        "symbol": "BTC",
+        "coingeckoId": "bitcoin",
+        "kind": "priceChange",
+        "period": "24h"
+      }
+    },
+    "expectMethod": "__price_change__",
+    "expectParams": [
+      "chainlink",
+      "LINK",
+      "24h"
+    ],
+    "id": "f-47"
+  },
+  {
+    "query": "what about link",
+    "sessionContext": {
+      "lastMarketQuery": {
+        "symbol": "BTC",
+        "coingeckoId": "bitcoin",
+        "kind": "priceChange",
+        "period": "24h"
+      }
+    },
+    "expectMethod": "__price_change__",
+    "expectParams": [
+      "chainlink",
+      "LINK",
+      "24h"
+    ],
+    "id": "f-48"
+  },
+  {
+    "query": "how about xrp",
+    "sessionContext": {
+      "lastMarketQuery": {
+        "symbol": "BTC",
+        "coingeckoId": "bitcoin",
+        "kind": "priceChange",
+        "period": "24h"
+      }
+    },
+    "expectMethod": "__price_change__",
+    "expectParams": [
+      "ripple",
+      "XRP",
+      "24h"
+    ],
+    "id": "f-49"
+  },
+  {
+    "query": "what about xrp",
+    "sessionContext": {
+      "lastMarketQuery": {
+        "symbol": "BTC",
+        "coingeckoId": "bitcoin",
+        "kind": "priceChange",
+        "period": "24h"
+      }
+    },
+    "expectMethod": "__price_change__",
+    "expectParams": [
+      "ripple",
+      "XRP",
+      "24h"
+    ],
+    "id": "f-50"
+  },
+  {
+    "query": "how has btc been doing",
+    "expectMethod": "__price_change__",
+    "expectParams": [
+      "bitcoin",
+      "BTC",
+      "24h"
+    ],
+    "id": "f-51"
+  },
+  {
+    "query": "how is eth performing",
+    "expectMethod": "__price_change__",
+    "expectParams": [
+      "ethereum",
+      "ETH",
+      "24h"
+    ],
+    "id": "f-52"
+  },
+  {
+    "query": "sol trend",
+    "expectMethod": "__price_change__",
+    "expectParams": [
+      "solana",
+      "SOL",
+      "24h"
+    ],
+    "id": "f-53"
+  },
+  {
+    "query": "is btc up or down",
+    "expectMethod": "__price_change__",
+    "expectParams": [
+      "bitcoin",
+      "BTC",
+      "24h"
+    ],
+    "id": "f-54"
+  },
+  {
+    "query": "doge rally",
+    "expectMethod": "__price_change__",
+    "expectParams": [
+      "dogecoin",
+      "DOGE",
+      "24h"
+    ],
+    "id": "f-55"
+  },
+  {
+    "query": "btc correction",
+    "expectMethod": "__price_change__",
+    "expectParams": [
+      "bitcoin",
+      "BTC",
+      "24h"
+    ],
+    "id": "f-56"
+  },
+  {
+    "query": "what was it 1 hour ago",
+    "sessionContext": {
+      "lastQuery": {
+        "chain": "eth",
+        "method": "eth_gasPrice",
+        "subject": "gas",
+        "params": []
+      }
+    },
+    "expectMethod": "__query_at_time__",
+    "expectParamsPrefix": [
+      "eth",
+      "gas",
+      3600
+    ],
+    "id": "f-57"
+  },
+  {
+    "query": "what was it 2 hours ago",
+    "sessionContext": {
+      "lastQuery": {
+        "chain": "eth",
+        "method": "eth_gasPrice",
+        "subject": "gas",
+        "params": []
+      }
+    },
+    "expectMethod": "__query_at_time__",
+    "expectParamsPrefix": [
+      "eth",
+      "gas",
+      7200
+    ],
+    "id": "f-58"
+  },
+  {
+    "query": "30 minutes ago",
+    "sessionContext": {
+      "lastQuery": {
+        "chain": "eth",
+        "method": "eth_gasPrice",
+        "subject": "gas",
+        "params": []
+      }
+    },
+    "expectMethod": "__query_at_time__",
+    "expectParamsPrefix": [
+      "eth",
+      "gas",
+      1800
+    ],
+    "id": "f-59"
+  },
+  {
+    "query": "and yesterday",
+    "sessionContext": {
+      "lastQuery": {
+        "chain": "eth",
+        "method": "eth_gasPrice",
+        "subject": "gas",
+        "params": []
+      }
+    },
+    "expectMethod": "__query_at_time__",
+    "expectParamsPrefix": [
+      "eth",
+      "gas",
+      86400
+    ],
+    "id": "f-60"
+  },
+  {
+    "query": "last hour",
+    "sessionContext": {
+      "lastQuery": {
+        "chain": "eth",
+        "method": "eth_gasPrice",
+        "subject": "gas",
+        "params": []
+      }
+    },
+    "expectMethod": "__query_at_time__",
+    "expectParamsPrefix": [
+      "eth",
+      "gas",
+      3600
+    ],
+    "id": "f-61"
+  },
+  {
+    "query": "a week ago",
+    "sessionContext": {
+      "lastQuery": {
+        "chain": "eth",
+        "method": "eth_gasPrice",
+        "subject": "gas",
+        "params": []
+      }
+    },
+    "expectMethod": "__query_at_time__",
+    "expectParamsPrefix": [
+      "eth",
+      "gas",
+      604800
+    ],
+    "id": "f-62"
+  },
+  {
+    "query": "3 days ago",
+    "sessionContext": {
+      "lastQuery": {
+        "chain": "eth",
+        "method": "eth_gasPrice",
+        "subject": "gas",
+        "params": []
+      }
+    },
+    "expectMethod": "__query_at_time__",
+    "expectParamsPrefix": [
+      "eth",
+      "gas",
+      259200
+    ],
+    "id": "f-63"
+  },
+  {
+    "query": "how about then 1 hour ago",
+    "sessionContext": {
+      "lastQuery": {
+        "chain": "eth",
+        "method": "eth_gasPrice",
+        "subject": "gas",
+        "params": []
+      }
+    },
+    "expectMethod": "__query_at_time__",
+    "expectParamsPrefix": [
+      "eth",
+      "gas",
+      3600
+    ],
+    "id": "f-64"
+  },
+  {
+    "query": "back then 2 hours ago",
+    "sessionContext": {
+      "lastQuery": {
+        "chain": "eth",
+        "method": "eth_gasPrice",
+        "subject": "gas",
+        "params": []
+      }
+    },
+    "expectMethod": "__query_at_time__",
+    "expectParamsPrefix": [
+      "eth",
+      "gas",
+      7200
+    ],
+    "id": "f-65"
+  },
+  {
+    "query": "1 day ago",
+    "sessionContext": {
+      "lastQuery": {
+        "chain": "eth",
+        "method": "eth_gasPrice",
+        "subject": "gas",
+        "params": []
+      }
+    },
+    "expectMethod": "__query_at_time__",
+    "expectParamsPrefix": [
+      "eth",
+      "gas",
+      86400
+    ],
+    "id": "f-66"
+  },
+  {
+    "query": "6 hours ago",
+    "sessionContext": {
+      "lastQuery": {
+        "chain": "eth",
+        "method": "eth_gasPrice",
+        "subject": "gas",
+        "params": []
+      }
+    },
+    "expectMethod": "__query_at_time__",
+    "expectParamsPrefix": [
+      "eth",
+      "gas",
+      21600
+    ],
+    "id": "f-67"
+  },
+  {
+    "query": "45 minutes ago",
+    "sessionContext": {
+      "lastQuery": {
+        "chain": "eth",
+        "method": "eth_gasPrice",
+        "subject": "gas",
+        "params": []
+      }
+    },
+    "expectMethod": "__query_at_time__",
+    "expectParamsPrefix": [
+      "eth",
+      "gas",
+      2700
+    ],
+    "id": "f-68"
+  },
+  {
+    "query": "12 hours ago",
+    "sessionContext": {
+      "lastQuery": {
+        "chain": "eth",
+        "method": "eth_gasPrice",
+        "subject": "gas",
+        "params": []
+      }
+    },
+    "expectMethod": "__query_at_time__",
+    "expectParamsPrefix": [
+      "eth",
+      "gas",
+      43200
+    ],
+    "id": "f-69"
+  },
+  {
+    "query": "and yesterday",
+    "sessionContext": {
+      "lastQuery": {
+        "chain": "eth",
+        "method": "eth_getBalance",
+        "subject": "balance",
+        "params": [
+          "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045"
+        ]
+      }
+    },
+    "expectMethod": "__query_at_time__",
+    "expectParamsPrefix": [
+      "eth",
+      "balance",
+      86400
+    ],
+    "id": "f-70"
+  },
+  {
+    "query": "what was it 2 hours ago",
+    "sessionContext": {
+      "lastQuery": {
+        "chain": "eth",
+        "method": "eth_getBalance",
+        "subject": "balance",
+        "params": [
+          "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045"
+        ]
+      }
+    },
+    "expectMethod": "__query_at_time__",
+    "expectParamsPrefix": [
+      "eth",
+      "balance",
+      7200
+    ],
+    "id": "f-71"
+  },
+  {
+    "query": "last week",
+    "sessionContext": {
+      "lastQuery": {
+        "chain": "eth",
+        "method": "eth_getBalance",
+        "subject": "balance",
+        "params": [
+          "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045"
+        ]
+      }
+    },
+    "expectMethod": "__query_at_time__",
+    "expectParamsPrefix": [
+      "eth",
+      "balance",
+      604800
+    ],
+    "id": "f-72"
+  },
+  {
+    "query": "1 hour ago",
+    "sessionContext": {
+      "lastQuery": {
+        "chain": "eth",
+        "method": "eth_getBalance",
+        "subject": "balance",
+        "params": [
+          "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045"
+        ]
+      }
+    },
+    "expectMethod": "__query_at_time__",
+    "expectParamsPrefix": [
+      "eth",
+      "balance",
+      3600
+    ],
+    "id": "f-73"
+  },
+  {
+    "query": "yesterday",
+    "sessionContext": {
+      "lastQuery": {
+        "chain": "eth",
+        "method": "eth_getBalance",
+        "subject": "balance",
+        "params": [
+          "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045"
+        ]
+      }
+    },
+    "expectMethod": "__query_at_time__",
+    "expectParamsPrefix": [
+      "eth",
+      "balance",
+      86400
+    ],
+    "id": "f-74"
+  },
+  {
+    "query": "3 days ago",
+    "sessionContext": {
+      "lastQuery": {
+        "chain": "eth",
+        "method": "eth_getBalance",
+        "subject": "balance",
+        "params": [
+          "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045"
+        ]
+      }
+    },
+    "expectMethod": "__query_at_time__",
+    "expectParamsPrefix": [
+      "eth",
+      "balance",
+      259200
+    ],
+    "id": "f-75"
+  },
+  {
+    "query": "how about last week",
+    "sessionContext": {
+      "lastQuery": {
+        "chain": "eth",
+        "method": "eth_blockNumber",
+        "subject": "blockNumber",
+        "params": []
+      }
+    },
+    "expectMethod": "__query_at_time__",
+    "expectParamsPrefix": [
+      "eth",
+      "blockNumber",
+      604800
+    ],
+    "id": "f-76"
+  },
+  {
+    "query": "what was it yesterday",
+    "sessionContext": {
+      "lastQuery": {
+        "chain": "eth",
+        "method": "eth_blockNumber",
+        "subject": "blockNumber",
+        "params": []
+      }
+    },
+    "expectMethod": "__query_at_time__",
+    "expectParamsPrefix": [
+      "eth",
+      "blockNumber",
+      86400
+    ],
+    "id": "f-77"
+  },
+  {
+    "query": "2 hours ago",
+    "sessionContext": {
+      "lastQuery": {
+        "chain": "eth",
+        "method": "eth_blockNumber",
+        "subject": "blockNumber",
+        "params": []
+      }
+    },
+    "expectMethod": "__query_at_time__",
+    "expectParamsPrefix": [
+      "eth",
+      "blockNumber",
+      7200
+    ],
+    "id": "f-78"
+  },
+  {
+    "query": "what's that in USD",
+    "sessionContext": {
+      "lastWalletPortfolio": {
+        "address": "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
+        "chains": [
+          {
+            "chain": "eth",
+            "chainName": "Ethereum",
+            "nativeSymbol": "ETH",
+            "nativeBalance": "1.0",
+            "tokens": []
+          }
+        ]
+      }
+    },
+    "expectMethod": "__wallet_portfolio_convert__",
+    "id": "f-79"
+  },
+  {
+    "query": "how much is that in dollars",
+    "sessionContext": {
+      "lastWalletPortfolio": {
+        "address": "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
+        "chains": [
+          {
+            "chain": "eth",
+            "chainName": "Ethereum",
+            "nativeSymbol": "ETH",
+            "nativeBalance": "1.0",
+            "tokens": []
+          }
+        ]
+      }
+    },
+    "expectMethod": "__wallet_portfolio_convert__",
+    "id": "f-80"
+  },
+  {
+    "query": "value in usd",
+    "sessionContext": {
+      "lastWalletPortfolio": {
+        "address": "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
+        "chains": [
+          {
+            "chain": "eth",
+            "chainName": "Ethereum",
+            "nativeSymbol": "ETH",
+            "nativeBalance": "1.0",
+            "tokens": []
+          }
+        ]
+      }
+    },
+    "expectMethod": "__wallet_portfolio_convert__",
+    "id": "f-81"
+  },
+  {
+    "query": "worth in fiat",
+    "sessionContext": {
+      "lastWalletPortfolio": {
+        "address": "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
+        "chains": [
+          {
+            "chain": "eth",
+            "chainName": "Ethereum",
+            "nativeSymbol": "ETH",
+            "nativeBalance": "1.0",
+            "tokens": []
+          }
+        ]
+      }
+    },
+    "expectMethod": "__wallet_portfolio_convert__",
+    "id": "f-82"
+  },
+  {
+    "query": "convert that to usd",
+    "sessionContext": {
+      "lastWalletPortfolio": {
+        "address": "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
+        "chains": [
+          {
+            "chain": "eth",
+            "chainName": "Ethereum",
+            "nativeSymbol": "ETH",
+            "nativeBalance": "1.0",
+            "tokens": []
+          }
+        ]
+      }
+    },
+    "expectMethod": "__wallet_portfolio_convert__",
+    "id": "f-83"
+  },
+  {
+    "query": "how much is that",
+    "sessionContext": {
+      "lastWalletPortfolio": {
+        "address": "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
+        "chains": [
+          {
+            "chain": "eth",
+            "chainName": "Ethereum",
+            "nativeSymbol": "ETH",
+            "nativeBalance": "1.0",
+            "tokens": []
+          }
+        ]
+      }
+    },
+    "expectMethod": "__wallet_portfolio_convert__",
+    "id": "f-84"
+  },
+  {
+    "query": "what's that worth",
+    "sessionContext": {
+      "lastWalletPortfolio": {
+        "address": "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
+        "chains": [
+          {
+            "chain": "eth",
+            "chainName": "Ethereum",
+            "nativeSymbol": "ETH",
+            "nativeBalance": "1.0",
+            "tokens": []
+          }
+        ]
+      }
+    },
+    "expectMethod": "__wallet_portfolio_convert__",
+    "id": "f-85"
+  },
+  {
+    "query": "in dollars",
+    "sessionContext": {
+      "lastWalletPortfolio": {
+        "address": "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
+        "chains": [
+          {
+            "chain": "eth",
+            "chainName": "Ethereum",
+            "nativeSymbol": "ETH",
+            "nativeBalance": "1.0",
+            "tokens": []
+          }
+        ]
+      }
+    },
+    "expectMethod": "__wallet_portfolio_convert__",
+    "id": "f-86"
+  },
+  {
+    "query": "in fiat",
+    "sessionContext": {
+      "lastWalletPortfolio": {
+        "address": "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
+        "chains": [
+          {
+            "chain": "eth",
+            "chainName": "Ethereum",
+            "nativeSymbol": "ETH",
+            "nativeBalance": "1.0",
+            "tokens": []
+          }
+        ]
+      }
+    },
+    "expectMethod": "__wallet_portfolio_convert__",
+    "id": "f-87"
+  },
+  {
+    "query": "how about in BTC",
+    "sessionContext": {
+      "lastWalletPortfolio": {
+        "address": "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
+        "chains": [
+          {
+            "chain": "eth",
+            "chainName": "Ethereum",
+            "nativeSymbol": "ETH",
+            "nativeBalance": "1.0",
+            "tokens": []
+          }
+        ]
+      }
+    },
+    "expectMethod": "__wallet_portfolio_convert__",
+    "id": "f-88"
+  },
+  {
+    "query": "what about in eth",
+    "sessionContext": {
+      "lastWalletPortfolio": {
+        "address": "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
+        "chains": [
+          {
+            "chain": "eth",
+            "chainName": "Ethereum",
+            "nativeSymbol": "ETH",
+            "nativeBalance": "1.0",
+            "tokens": []
+          }
+        ]
+      }
+    },
+    "expectMethod": "__wallet_portfolio_convert__",
+    "id": "f-89"
+  },
+  {
+    "query": "in euros",
+    "sessionContext": {
+      "lastWalletPortfolio": {
+        "address": "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
+        "chains": [
+          {
+            "chain": "eth",
+            "chainName": "Ethereum",
+            "nativeSymbol": "ETH",
+            "nativeBalance": "1.0",
+            "tokens": []
+          }
+        ]
+      }
+    },
+    "expectMethod": "__wallet_portfolio_convert__",
+    "id": "f-90"
+  },
+  {
+    "query": "what's that in USD",
+    "sessionContext": {
+      "lastBalance": {
+        "chain": "eth",
+        "address": "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
+        "wei": "0xde0b6b3a7640000"
+      }
+    },
+    "expectMethod": "__native_convert__",
+    "id": "f-91"
+  },
+  {
+    "query": "how much is that in dollars",
+    "sessionContext": {
+      "lastBalance": {
+        "chain": "eth",
+        "address": "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
+        "wei": "0xde0b6b3a7640000"
+      }
+    },
+    "expectMethod": "__native_convert__",
+    "id": "f-92"
+  },
+  {
+    "query": "in dollars",
+    "sessionContext": {
+      "lastBalance": {
+        "chain": "eth",
+        "address": "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
+        "wei": "0xde0b6b3a7640000"
+      }
+    },
+    "expectMethod": "__native_convert__",
+    "id": "f-93"
+  },
+  {
+    "query": "in fiat",
+    "sessionContext": {
+      "lastBalance": {
+        "chain": "eth",
+        "address": "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
+        "wei": "0xde0b6b3a7640000"
+      }
+    },
+    "expectMethod": "__native_convert__",
+    "id": "f-94"
+  },
+  {
+    "query": "convert that",
+    "sessionContext": {
+      "lastBalance": {
+        "chain": "eth",
+        "address": "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
+        "wei": "0xde0b6b3a7640000"
+      }
+    },
+    "expectMethod": "__native_convert__",
+    "id": "f-95"
+  },
+  {
+    "query": "how much is that",
+    "sessionContext": {
+      "lastBalance": {
+        "chain": "eth",
+        "address": "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
+        "wei": "0xde0b6b3a7640000"
+      }
+    },
+    "expectMethod": "__native_convert__",
+    "id": "f-96"
+  },
+  {
+    "query": "what's that worth",
+    "sessionContext": {
+      "lastBalance": {
+        "chain": "eth",
+        "address": "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
+        "wei": "0xde0b6b3a7640000"
+      }
+    },
+    "expectMethod": "__native_convert__",
+    "id": "f-97"
+  },
+  {
+    "query": "worth in usd",
+    "sessionContext": {
+      "lastBalance": {
+        "chain": "eth",
+        "address": "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
+        "wei": "0xde0b6b3a7640000"
+      }
+    },
+    "expectMethod": "__native_convert__",
+    "id": "f-98"
+  },
+  {
+    "query": "value in usd",
+    "sessionContext": {
+      "lastBalance": {
+        "chain": "eth",
+        "address": "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
+        "wei": "0xde0b6b3a7640000"
+      }
+    },
+    "expectMethod": "__native_convert__",
+    "id": "f-99"
+  },
+  {
+    "query": "how about for the week",
+    "sessionContext": {
+      "lastMarketQuery": {
+        "symbol": "BTC",
+        "coingeckoId": "bitcoin",
+        "kind": "spotPrice"
+      }
+    },
+    "expectMethod": "__price_change__",
+    "expectParams": [
+      "bitcoin",
+      "BTC",
+      "7d"
+    ],
+    "id": "f-100"
+  },
+  {
+    "query": "what about last month",
+    "sessionContext": {
+      "lastMarketQuery": {
+        "symbol": "BTC",
+        "coingeckoId": "bitcoin",
+        "kind": "spotPrice"
+      }
+    },
+    "expectMethod": "__price_change__",
+    "expectParams": [
+      "bitcoin",
+      "BTC",
+      "30d"
+    ],
+    "id": "f-101"
+  },
+  {
+    "query": "for the week",
+    "sessionContext": {
+      "lastMarketQuery": {
+        "symbol": "BTC",
+        "coingeckoId": "bitcoin",
+        "kind": "spotPrice"
+      }
+    },
+    "expectMethod": "__price_change__",
+    "expectParams": [
+      "bitcoin",
+      "BTC",
+      "7d"
+    ],
+    "id": "f-102"
+  },
+  {
+    "turns": [
+      {
+        "role": "user",
+        "content": "how has btc been doing"
+      },
+      {
+        "role": "assistant",
+        "content": "BTC 24h change: +1%"
+      }
+    ],
+    "query": "how about for the week",
+    "expectMethod": "__price_change__",
+    "expectParams": [
+      "bitcoin",
+      "BTC",
+      "7d"
+    ],
+    "id": "f-103"
+  },
+  {
+    "turns": [
+      {
+        "role": "user",
+        "content": "how has btc been doing"
+      },
+      {
+        "role": "assistant",
+        "content": "BTC 24h change: +1%"
+      }
+    ],
+    "query": "how about in a week",
+    "expectMethod": "__price_change__",
+    "expectParams": [
+      "bitcoin",
+      "BTC",
+      "7d"
+    ],
+    "id": "f-104"
+  },
+  {
+    "turns": [
+      {
+        "role": "user",
+        "content": "how has btc been doing"
+      },
+      {
+        "role": "assistant",
+        "content": "BTC 24h change: +1%"
+      }
+    ],
+    "query": "what about last month",
+    "expectMethod": "__price_change__",
+    "expectParams": [
+      "bitcoin",
+      "BTC",
+      "30d"
+    ],
+    "id": "f-105"
+  },
+  {
+    "query": "btc 14d change",
+    "sessionContext": {
+      "lastMarketQuery": {
+        "symbol": "BTC",
+        "coingeckoId": "bitcoin",
+        "kind": "priceChange",
+        "period": "24h"
+      }
+    },
+    "expectMethod": "__price_change__",
+    "expectParams": [
+      "bitcoin",
+      "BTC",
+      "14d"
+    ],
+    "id": "f-106"
+  },
+  {
+    "query": "eth past two weeks",
+    "sessionContext": {
+      "lastMarketQuery": {
+        "symbol": "ETH",
+        "coingeckoId": "ethereum",
+        "kind": "priceChange",
+        "period": "24h"
+      }
+    },
+    "expectMethod": "__price_change__",
+    "expectParams": [
+      "ethereum",
+      "ETH",
+      "14d"
+    ],
+    "id": "f-107"
+  },
+  {
+    "query": "sol 14 days",
+    "sessionContext": {
+      "lastMarketQuery": {
+        "symbol": "SOL",
+        "coingeckoId": "solana",
+        "kind": "priceChange",
+        "period": "24h"
+      }
+    },
+    "expectMethod": "__price_change__",
+    "expectParams": [
+      "solana",
+      "SOL",
+      "14d"
+    ],
+    "id": "f-108"
+  },
+  {
+    "query": "btc ytd",
+    "sessionContext": {
+      "lastMarketQuery": {
+        "symbol": "BTC",
+        "coingeckoId": "bitcoin",
+        "kind": "priceChange",
+        "period": "24h"
+      }
+    },
+    "expectMethod": "__price_change__",
+    "expectParams": [
+      "bitcoin",
+      "BTC",
+      "1y"
+    ],
+    "id": "f-109"
+  },
+  {
+    "query": "eth year to date",
+    "sessionContext": {
+      "lastMarketQuery": {
+        "symbol": "ETH",
+        "coingeckoId": "ethereum",
+        "kind": "priceChange",
+        "period": "24h"
+      }
+    },
+    "expectMethod": "__price_change__",
+    "expectParams": [
+      "ethereum",
+      "ETH",
+      "1y"
+    ],
+    "id": "f-110"
+  },
+  {
+    "query": "btc past year",
+    "sessionContext": {
+      "lastMarketQuery": {
+        "symbol": "BTC",
+        "coingeckoId": "bitcoin",
+        "kind": "priceChange",
+        "period": "24h"
+      }
+    },
+    "expectMethod": "__price_change__",
+    "expectParams": [
+      "bitcoin",
+      "BTC",
+      "1y"
+    ],
+    "id": "f-111"
+  },
+  {
+    "query": "how about 14d",
+    "sessionContext": {
+      "lastMarketQuery": {
+        "symbol": "BTC",
+        "coingeckoId": "bitcoin",
+        "kind": "priceChange",
+        "period": "24h"
+      }
+    },
+    "expectMethod": "__price_change__",
+    "expectParams": [
+      "bitcoin",
+      "BTC",
+      "14d"
+    ],
+    "id": "f-112"
+  },
+  {
+    "query": "for two weeks",
+    "sessionContext": {
+      "lastMarketQuery": {
+        "symbol": "BTC",
+        "coingeckoId": "bitcoin",
+        "kind": "priceChange",
+        "period": "24h"
+      }
+    },
+    "expectMethod": "__price_change__",
+    "expectParams": [
+      "bitcoin",
+      "BTC",
+      "14d"
+    ],
+    "id": "f-113"
+  },
+  {
+    "id": "eth-in-1-week-after-24h",
+    "query": "in 1 week",
+    "sessionContext": {
+      "lastMarketQuery": {
+        "symbol": "ETH",
+        "coingeckoId": "ethereum",
+        "kind": "priceChange",
+        "period": "24h"
+      }
+    },
+    "expectMethod": "__price_change__",
+    "expectParams": ["ethereum", "ETH", "7d"]
+  },
+  {
+    "id": "eth-in-1-week-after-spot",
+    "query": "in 1 week",
+    "sessionContext": {
+      "lastMarketQuery": {
+        "symbol": "ETH",
+        "coingeckoId": "ethereum",
+        "kind": "spotPrice"
+      }
+    },
+    "expectMethod": "__price_change__",
+    "expectParams": ["ethereum", "ETH", "7d"]
+  },
+  {
+    "id": "eth-in-2-weeks-after-24h",
+    "query": "in 2 weeks",
+    "sessionContext": {
+      "lastMarketQuery": {
+        "symbol": "ETH",
+        "coingeckoId": "ethereum",
+        "kind": "priceChange",
+        "period": "24h"
+      }
+    },
+    "expectMethod": "__price_change__",
+    "expectParams": ["ethereum", "ETH", "14d"]
+  },
+  {
+    "id": "eth-in-1-week-history-only",
+    "turns": [
+      { "role": "user", "content": "what was price of eth" },
+      { "role": "assistant", "content": "ETH spot price: 1734.92 USD" },
+      { "role": "user", "content": "in 24 hours" },
+      { "role": "assistant", "content": "ETH 24h change: +1.33%" }
+    ],
+    "query": "in 1 week",
+    "expectMethod": "__price_change__",
+    "expectParams": ["ethereum", "ETH", "7d"]
+  }
+]

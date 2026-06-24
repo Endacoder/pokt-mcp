@@ -12,6 +12,14 @@
     "./session-token": {
       "types": "./dist/session-token.d.ts",
       "import": "./dist/session-token.js"
+    },
+    "./gas-buffer": {
+      "types": "./dist/gas-buffer.d.ts",
+      "import": "./dist/gas-buffer.js"
+    },
+    "./swap-gas-routing": {
+      "types": "./dist/swap-gas-routing.d.ts",
+      "import": "./dist/swap-gas-routing.js"
     }
   },
   "scripts": {

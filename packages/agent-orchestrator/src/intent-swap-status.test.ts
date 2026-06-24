@@ -10,6 +10,8 @@ describe("isSwapStatusQuery", () => {
     expect(isSwapStatusQuery("did that swap succeed?")).toBe(true);
     expect(isSwapStatusQuery("what is the swap status")).toBe(true);
     expect(isSwapStatusQuery("was my swap successful")).toBe(true);
+    expect(isSwapStatusQuery("is it done", { lastSwapIntent: { intentId: "int_1" } })).toBe(true);
+    expect(isSwapStatusQuery("still pending", { lastSwapIntent: { intentId: "int_1" } })).toBe(true);
   });
 
   it("does not match new swap execution requests", () => {

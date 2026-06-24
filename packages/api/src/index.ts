@@ -4,16 +4,32 @@ import {
   SESSION_TOKEN_HEADER,
   logLlmConfigStatus,
   isWriteRpcMethod,
+  applyGasSafetyBufferHex,
 } from "@pokt-mcp/shared";
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { streamSSE } from "hono/streaming";
-import { createAgentOrchestrator, prepareSwapForSigning, submitSwapSignature, getChatSession, setChatSession } from "@pokt-mcp/agent-orchestrator";
-import { isQuoteExpiredError, isRouteBuildError, PermitAmountMismatchError } from "@pokt-mcp/agent-orchestrator";
-import { createPocketClient, listChains, resolveChain } from "@pokt-mcp/pocket-client";
-import { buildTransfer } from "@pokt-mcp/tx-builder";
-import type { ChatRequest, RpcRequest, WalletTxBroadcastRequest, WalletTxPreviewRequest } from "@pokt-mcp/shared";
+import { createAgentOrchestrator, prepareSwapForSigning, fetchQuoteConfirmation, submitSwapSignature, pollSwapIntentStatus, getSwapIntentStatus, getChatSession, setChatSession, syncPermitSignerForIntent } from "@pokt-mcp/agent-orchestrator";
+import {
+  isQuoteExpiredError,
+  isConfirmationRequiredError,
+  isRouteBuildError,
+  isInsufficientAllowanceError,
+  isInvalidSignatureSubmitError,
+  isWalletAccountMismatchError,
+  isSimulationTransferFailedError,
+  isOneinchOrderBuildError,
+  isUserPaidGasRequiredError,
+  isInvalidExecutionModeError,
+  PermitAmountMismatchError,
+  OrderQuoteMismatchError,
+  fetchSwapSigningInstructions,
+} from "@pokt-mcp/agent-orchestrator";
+import { createPocketClient, initRegistry, listChains, resolveChain } from "@pokt-mcp/pocket-client";
+import { pollTxLookup } from "@pokt-mcp/nl-rpc";
+import { buildTransfer, buildTransactionFeesOnly, normalizeGasQuantity, checksumAddress, parseValueToHex } from "@pokt-mcp/tx-builder";
+import { type ChatRequest, type RpcRequest, type WalletTxBroadcastRequest, type WalletTxPreviewRequest } from "@pokt-mcp/shared";
 import { loadPolicyConfig, assertWritePolicy, assertMethodAllowed } from "./policy.js";
 import { createRateLimitMiddleware, loadRateLimitConfig, RateLimiter } from "./rate-limit.js";
 import { createInternalAuthMiddleware, loadInternalAuthConfig } from "./internal-auth.js";
@@ -22,6 +38,7 @@ import {
   createSessionTokenRoute,
   loadSessionTokenConfig,
 } from "./session-token.js";
+import { parseWalletAddress, resolveSwapWalletAddress } from "./swap-wallet.js";
 
 const app = new Hono();
 const pocket = createPocketClient();
@@ -80,14 +97,25 @@ app.post("/chat", async (c) => {
   const chatInput: ChatRequest = {
     ...body,
     sessionId,
+    history: body.history,
     chain: wallet?.chainSlug ?? body.chain,
-    connectedAddress: wallet?.address ?? body.connectedAddress,
+    connectedAddress: body.connectedAddress ?? wallet?.address,
     swapExecutionMode: body.swapExecutionMode,
   };
 
+  const KEEPALIVE_MS = 10_000;
+
   return streamSSE(c, async (stream) => {
-    for await (const event of agent.runChat(chatInput)) {
-      await stream.writeSSE({ event: event.type, data: JSON.stringify(event.data) });
+    await stream.writeSSE({ event: "ping", data: "{}" });
+    const keepalive = setInterval(() => {
+      void stream.writeSSE({ event: "ping", data: "{}" });
+    }, KEEPALIVE_MS);
+    try {
+      for await (const event of agent.runChat(chatInput)) {
+        await stream.writeSSE({ event: event.type, data: JSON.stringify(event.data) });
+      }
+    } finally {
+      clearInterval(keepalive);
     }
   });
 });
@@ -116,7 +144,8 @@ app.post("/wallet/session", async (c) => {
   } catch (err) {
     return c.json({ error: err instanceof Error ? err.message : String(err) }, 400);
   }
-  walletSessions.set(sessionId, { address: body.address, chainSlug: body.chainSlug });
+  const address = body.address?.trim() || undefined;
+  walletSessions.set(sessionId, { address, chainSlug: body.chainSlug || undefined });
   return c.json({ ok: true, sessionId });
 });
 
@@ -140,6 +169,7 @@ app.post("/wallet/tx/preview", async (c) => {
       to: body.to,
       value: body.value ?? "0",
       data: body.data,
+      gasLimit: body.gasLimit,
     });
     return c.json({
       summary: `Transfer to ${body.to} on ${info.slug}`,
@@ -148,7 +178,35 @@ app.post("/wallet/tx/preview", async (c) => {
       explorerUrl: info.blockExplorer,
     });
   } catch (err) {
-    return c.json({ error: err instanceof Error ? err.message : String(err) }, 400);
+    const errMsg = err instanceof Error ? err.message : String(err);
+    const selector = body.data?.slice(0, 10) ?? "";
+    const gasHex = normalizeGasQuantity(body.gasLimit);
+    const estimateFailed =
+      /estimate|execution reverted|revert/i.test(errMsg) && Boolean(body.data && body.data !== "0x");
+
+    if (estimateFailed && gasHex) {
+      try {
+        const fees = await buildTransactionFeesOnly({ chain: info.slug, from: body.from });
+        const value = parseValueToHex(body.value ?? "0");
+        return c.json({
+          summary: `Contract call to ${body.to} on ${info.slug} (gas estimate unavailable — using route gas limit)`,
+          transaction: {
+            ...fees,
+            to: checksumAddress(body.to),
+            value,
+            data: body.data ?? "0x",
+            gas: applyGasSafetyBufferHex(gasHex),
+          },
+          estimatedGas: applyGasSafetyBufferHex(gasHex),
+          gasEstimateFallback: true,
+          explorerUrl: info.blockExplorer,
+        });
+      } catch {
+        /* fees-only fallback failed — return original estimate error */
+      }
+    }
+
+    return c.json({ error: errMsg }, 400);
   }
 });
 
@@ -230,11 +288,85 @@ app.post("/wallet/tx/record", async (c) => {
   }
 });
 
-app.post("/swap/prepare", async (c) => {
+app.post("/wallet/tx/verify", async (c) => {
+  const body = await c.req.json<{ chain?: string; txHash?: string; timeoutMs?: number }>();
+  const chainSlug = body.chain?.trim();
+  const txHash = body.txHash?.trim();
+  if (!chainSlug || !txHash) {
+    return c.json({ error: "chain and txHash are required" }, 400);
+  }
+  const info = resolveChain(chainSlug);
+  if (!info) return c.json({ error: `CHAIN_NOT_FOUND: ${chainSlug}` }, 404);
+  try {
+    const polled = await pollTxLookup(pocket, info.slug, txHash, "eth_getTransactionByHash", {
+      timeoutMs: body.timeoutMs ?? 20_000,
+      pollIntervalMs: 2_000,
+    });
+    return c.json({
+      found: polled.result != null,
+      pending: polled.pending ?? false,
+      waitedMs: polled.waitedMs,
+      pollAttempts: polled.pollAttempts,
+      chain: info.slug,
+      chainName: info.name,
+    });
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : String(err) }, 400);
+  }
+});
+
+app.post("/swap/quote-confirmation", async (c) => {
+  const body = await c.req.json<{ quoteId?: string; walletAddress?: string }>();
+  if (!body.quoteId?.trim()) {
+    return c.json({ error: "quoteId is required" }, 400);
+  }
+  const walletAddress = resolveSwapWalletAddress(
+    c.req.header("x-session-id"),
+    body.walletAddress,
+    walletSessions,
+  );
+  if (!walletAddress) {
+    return c.json({ error: "walletAddress is required — connect your wallet first" }, 400);
+  }
+  try {
+    const confirmation = await fetchQuoteConfirmation(body.quoteId.trim(), walletAddress);
+    return c.json(confirmation);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message.includes("INTENT_MCP_NOT_CONFIGURED")) {
+      return c.json({ error: message, code: "INTENT_MCP_NOT_CONFIGURED" }, 503);
+    }
+    if (isQuoteExpiredError(message)) {
+      return c.json(
+        {
+          error: "This swap quote has expired. Ask for a new quote and confirm within 60 seconds.",
+          code: "QUOTE_EXPIRED",
+        },
+        410,
+      );
+    }
+    return c.json({ error: message }, 400);
+  }
+});
+
+  app.post("/swap/prepare", async (c) => {
   const body = await c.req.json<{
     quoteId?: string;
     walletAddress?: string;
+    confirmationSignature?: string;
+    acknowledgeUserPaidGas?: boolean;
+    quoteExecutionMode?: string;
+    quoteRoute?: string;
+    quoteRouteType?: string;
+    quoteGasEstimateUsd?: number;
+    quoteGasless?: boolean;
     expectedPermit?: { tokenAddress?: string; amountAtomic?: string };
+    expectedQuote?: {
+      tokenInAddress?: string;
+      tokenOutAddress?: string;
+      amountInAtomic?: string;
+      chainId?: number;
+    };
     requote?: {
       fromChain?: number;
       toChain?: number;
@@ -242,21 +374,31 @@ app.post("/swap/prepare", async (c) => {
       tokenOut?: string;
       amount?: string;
       slippageBps?: number;
-      executionMode?: "any" | "gasless" | "gas";
+      executionMode?: "any" | "gasless";
     };
   }>();
   if (!body.quoteId?.trim()) {
     return c.json({ error: "quoteId is required" }, 400);
   }
-  if (!body.walletAddress?.trim()) {
+  const walletAddress = resolveSwapWalletAddress(
+    c.req.header("x-session-id"),
+    body.walletAddress,
+    walletSessions,
+  );
+  if (!walletAddress) {
     return c.json({ error: "walletAddress is required — connect your wallet first" }, 400);
   }
   try {
-    const expectedPermit =
-      body.expectedPermit?.tokenAddress?.trim() && body.expectedPermit?.amountAtomic?.trim()
+    const expectedQuote =
+      body.expectedQuote?.tokenInAddress?.trim() &&
+      body.expectedQuote?.tokenOutAddress?.trim() &&
+      body.expectedQuote?.amountInAtomic?.trim() &&
+      body.expectedQuote.chainId != null
         ? {
-            tokenAddress: body.expectedPermit.tokenAddress.trim(),
-            amountAtomic: body.expectedPermit.amountAtomic.trim(),
+            tokenInAddress: body.expectedQuote.tokenInAddress.trim(),
+            tokenOutAddress: body.expectedQuote.tokenOutAddress.trim(),
+            amountInAtomic: body.expectedQuote.amountInAtomic.trim(),
+            chainId: body.expectedQuote.chainId,
           }
         : undefined;
     const requote =
@@ -271,18 +413,45 @@ app.post("/swap/prepare", async (c) => {
             tokenOut: body.requote.tokenOut.trim(),
             amount: body.requote.amount.trim(),
             slippageBps: body.requote.slippageBps,
-            executionMode: body.requote.executionMode,
+            executionMode:
+              body.requote.executionMode === "gasless"
+                ? ("gasless" as const)
+                : ("any" as const),
           }
         : undefined;
     const result = await prepareSwapForSigning(
       body.quoteId.trim(),
-      body.walletAddress.trim(),
-      expectedPermit,
+      walletAddress,
+      expectedQuote?.tokenOutAddress ? expectedQuote : undefined,
       requote,
+      body.confirmationSignature?.trim() || undefined,
+      {
+        acknowledgeUserPaidGas: body.acknowledgeUserPaidGas,
+        quoteExecutionMode: body.quoteExecutionMode?.trim(),
+        quoteRoute: body.quoteRoute?.trim(),
+        quoteRouteType: body.quoteRouteType?.trim(),
+        quoteGasEstimateUsd: body.quoteGasEstimateUsd,
+        quoteGasless: body.quoteGasless,
+      },
     );
+    if (result.requoteApplied && !result.intentId) {
+      return c.json({
+        requoteApplied: true,
+        requoteNote: result.requoteNote,
+        freshQuoteId: result.freshQuoteId,
+        freshQuoteExpiresAt: result.freshQuoteExpiresAt,
+        freshExecutionMode: result.freshExecutionMode,
+        confirmationRequired: true,
+      });
+    }
     return c.json({
       intentId: result.intentId,
       signingInstructions: result.signingInstructions,
+      requoteApplied: result.requoteApplied ?? false,
+      requoteNote: result.requoteNote,
+      freshQuoteId: result.freshQuoteId,
+      freshQuoteExpiresAt: result.freshQuoteExpiresAt,
+      freshExecutionMode: result.freshExecutionMode,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -292,6 +461,9 @@ app.post("/swap/prepare", async (c) => {
     if (err instanceof PermitAmountMismatchError) {
       return c.json({ error: message, code: "PERMIT_AMOUNT_MISMATCH" }, 400);
     }
+    if (err instanceof OrderQuoteMismatchError) {
+      return c.json({ error: message, code: "ORDER_QUOTE_MISMATCH" }, 400);
+    }
     if (isQuoteExpiredError(message)) {
       return c.json(
         {
@@ -299,6 +471,51 @@ app.post("/swap/prepare", async (c) => {
           code: "QUOTE_EXPIRED",
         },
         410,
+      );
+    }
+    if (isConfirmationRequiredError(message)) {
+      return c.json(
+        {
+          error:
+            "Wallet confirmation signature required — sign the quote authorization message in your wallet first.",
+          code: "CONFIRMATION_REQUIRED",
+        },
+        400,
+      );
+    }
+    if (isUserPaidGasRequiredError(message)) {
+      return c.json(
+        {
+          error:
+            "This quote uses a user-paid gas route (Uniswap CLASSIC / LI.FI). Confirm the swap again — you will pay network gas, or switch Swap execution to Gasless and request a new quote.",
+          code: "USER_PAID_GAS_REQUIRED",
+        },
+        400,
+      );
+    }
+    if (isInvalidExecutionModeError(message)) {
+      return c.json(
+        {
+          error:
+            "Deprecated gas execution mode was rejected. Request a new quote with Best price or Gasless.",
+          code: "INVALID_EXECUTION_MODE",
+        },
+        400,
+      );
+    }
+    if (/Simulation failed|SIMULATION_FAILED/i.test(message)) {
+      const rpcHint = /your-key|your-alchemy-key|not a valid request object/i.test(message)
+        ? " Intent MCP is using an invalid RPC URL — set RPC_ETHEREUM (and other chain RPCs) in the intent-api .env to a real endpoint (e.g. https://eth.api.pocket.network) and restart intent-api."
+        : "";
+      const transferHint = isSimulationTransferFailedError(message)
+        ? " The router could not pull your input token — confirm your wallet holds enough of the token you're selling. Try Gasless or Best price in Settings → Swap execution, then request a fresh quote."
+        : "";
+      return c.json(
+        {
+          error: `Swap simulation failed before signing.${transferHint}${rpcHint} ${message.slice(0, 200)}`,
+          code: "SIMULATION_FAILED",
+        },
+        400,
       );
     }
     if (message.includes("SIGNING_PAYLOAD_UNAVAILABLE")) {
@@ -314,6 +531,80 @@ app.post("/swap/prepare", async (c) => {
         502,
       );
     }
+    if (/fresh re-quote was attempted but also failed/i.test(message)) {
+      return c.json({ error: message, code: "ROUTE_BUILD_FAILED" }, 502);
+    }
+    if (isOneinchOrderBuildError(message)) {
+      return c.json(
+        {
+          error:
+            "1inch Fusion gasless on Ethereum Mainnet is unavailable (Intent MCP feeReceiver). Request a new quote with Swap execution set to Best price, or try the same swap on Base.",
+          code: "ROUTE_BUILD_FAILED",
+        },
+        502,
+      );
+    }
+    return c.json({ error: message }, 400);
+  }
+});
+
+app.post("/swap/sync-permit", async (c) => {
+  const body = await c.req.json<{
+    intentId?: string;
+    signature?: string;
+    walletAddress?: string;
+  }>();
+  if (!body.intentId?.trim() || !body.signature?.trim()) {
+    return c.json({ error: "intentId and signature are required" }, 400);
+  }
+  const walletAddress = resolveSwapWalletAddress(
+    c.req.header("x-session-id"),
+    body.walletAddress,
+    walletSessions,
+  );
+  try {
+    const result = await syncPermitSignerForIntent(
+      body.intentId.trim(),
+      body.signature.trim(),
+      walletAddress ?? undefined,
+    );
+    const raw = result.raw as Record<string, unknown>;
+    const permitSigner =
+      typeof raw.permitSigner === "string"
+        ? raw.permitSigner
+        : typeof raw.walletAddress === "string"
+          ? raw.walletAddress
+          : undefined;
+    return c.json({
+      intentId: result.intentId,
+      status: result.status,
+      txHash: result.txHash,
+      permitSigner,
+      walletAddressCorrected: raw.walletAddressCorrected === true,
+      pendingMoreSignatures: result.pendingMoreSignatures ?? false,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message.includes("INTENT_MCP_NOT_CONFIGURED")) {
+      return c.json({ error: message, code: "INTENT_MCP_NOT_CONFIGURED" }, 503);
+    }
+    return c.json({ error: message }, 400);
+  }
+});
+
+app.post("/swap/instructions", async (c) => {
+  const body = await c.req.json<{ intentId?: string }>();
+  if (!body.intentId?.trim()) {
+    return c.json({ error: "intentId is required" }, 400);
+  }
+  try {
+    const signingInstructions = await fetchSwapSigningInstructions(body.intentId.trim());
+    return c.json({ intentId: body.intentId.trim(), signingInstructions });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message.includes("INTENT_MCP_NOT_CONFIGURED")) {
+      return c.json({ error: message, code: "INTENT_MCP_NOT_CONFIGURED" }, 503);
+    }
     return c.json({ error: message }, 400);
   }
 });
@@ -322,6 +613,8 @@ app.post("/swap/submit", async (c) => {
   const body = await c.req.json<{
     intentId?: string;
     signature?: string;
+    txHash?: string;
+    walletAddress?: string;
     tokenIn?: string;
     tokenOut?: string;
     amountIn?: string;
@@ -330,8 +623,23 @@ app.post("/swap/submit", async (c) => {
   if (!body.intentId?.trim() || !body.signature?.trim()) {
     return c.json({ error: "intentId and signature are required" }, 400);
   }
+  const walletAddress = resolveSwapWalletAddress(
+    c.req.header("x-session-id"),
+    body.walletAddress,
+    walletSessions,
+  );
+  if (!walletAddress) {
+    return c.json({ error: "walletAddress is required — connect your wallet first" }, 400);
+  }
   try {
-    const result = await submitSwapSignature(body.intentId.trim(), body.signature.trim());
+    const txHash = body.txHash?.trim() || undefined;
+    const signed = txHash && txHash === body.signature.trim() ? txHash : body.signature.trim();
+    const result = await submitSwapSignature(
+      body.intentId.trim(),
+      signed,
+      walletAddress,
+      txHash,
+    );
     try {
       const sessionId = requireSessionId(c.req.header("x-session-id"));
       const prev = getChatSession(sessionId) ?? {};
@@ -351,14 +659,66 @@ app.post("/swap/submit", async (c) => {
     } catch {
       /* session tracking optional when x-session-id missing/invalid */
     }
+    return c.json({
+      intentId: result.intentId,
+      status: result.status,
+      txHash: result.txHash,
+      pendingMoreSignatures: result.pendingMoreSignatures ?? false,
+      signingInstructions: result.signingInstructions,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (isInsufficientAllowanceError(message)) {
+      return c.json(
+        {
+          error:
+            "This swap needs a one-time token approval to Permit2 before the swap signature. Try again — your wallet should prompt for an approval transaction first.",
+          code: "INSUFFICIENT_ALLOWANCE",
+        },
+        400,
+      );
+    }
+    if (isWalletAccountMismatchError(message)) {
+      return c.json({ error: message, code: "WALLET_ACCOUNT_MISMATCH" }, 400);
+    }
+    if (isInvalidSignatureSubmitError(message)) {
+      const permitHint =
+        "Sign the Permit2 EIP-712 prompt (not the ERC20 approval transaction or quote confirmation message), then try again.";
+      const error =
+        /Permit2|transaction hash instead of a Permit2 signature/i.test(message)
+          ? /Sign the Permit2 EIP-712 prompt/i.test(message)
+            ? message
+            : `${message} ${permitHint}`
+          : "1inch rejected the wallet signature for this gasless order. Switch MetaMask to the account shown in the order, request a fresh quote, sign the EIP-712 prompt (not a transaction), and confirm within 60 seconds.";
+      return c.json({ error, code: "INVALID_SWAP_SIGNATURE" }, 400);
+    }
+    return c.json({ error: message }, 400);
+  }
+});
+
+app.post("/swap/status", async (c) => {
+  const body = await c.req.json<{ intentId?: string; poll?: boolean }>();
+  if (!body.intentId?.trim()) {
+    return c.json({ error: "intentId is required" }, 400);
+  }
+  try {
+    const intentId = body.intentId.trim();
+    const result = body.poll ? await pollSwapIntentStatus(intentId) : await getSwapIntentStatus(intentId);
     return c.json(result);
   } catch (err) {
-    return c.json({ error: err instanceof Error ? err.message : String(err) }, 400);
+    const message = err instanceof Error ? err.message : String(err);
+    if (message.includes("INTENT_MCP_NOT_CONFIGURED")) {
+      return c.json({ error: message, code: "INTENT_MCP_NOT_CONFIGURED" }, 503);
+    }
+    return c.json({ error: message }, 400);
   }
 });
 
 const port = Number(process.env.PORT ?? 3001);
 const hostname = process.env.HOST ?? "127.0.0.1";
+
+await initRegistry();
+
 serve({ fetch: app.fetch, port, hostname }, () => {
   logLlmConfigStatus("pokt-mcp-api");
   console.log(`pokt-mcp API listening on http://${hostname}:${port}`);

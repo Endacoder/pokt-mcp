@@ -10,7 +10,10 @@ Tool hierarchy (use the highest step that works):
 2. Curated read tools when chain + method are already known:
    pocket_get_balance, pocket_get_token_balance, pocket_get_block_number,
    pocket_get_transaction, pocket_get_receipt, pocket_get_nonce,
-   pocket_call_contract, pocket_get_logs, pocket_estimate_gas
+   pocket_call_contract, pocket_get_logs, pocket_estimate_gas,
+   pocket_audit_account (multi-chain security audit: portfolio, activity, approvals)
+   Feature tools: pocket_wallet_health, pocket_research_token, pocket_explain_contract,
+   pocket_governance_query, pocket_scan_address, pocket_defi_positions, pocket_operator_status
 3. pocket_rpc_call / pocket_batch_rpc — last resort when pocket_query fails and you know exact method + params
 4. pocket_agent_query — only when you need explicit multi-step agent control; prefer pocket_query otherwise
 
@@ -45,6 +48,8 @@ Balances and accounts:
 - "USDC balance of 0x… on Base" → pocket_query or pocket_get_token_balance
 - "Nonce for 0x…" → pocket_query or pocket_get_nonce
 - "Balance of 0x… 24 hours ago" → pocket_query (temporal)
+- "Audit account 0x…", "check token approvals" → pocket_audit_account or pocket_query
+- "Audit my account" → wallet_get_status then pocket_audit_account or pocket_query
 
 Transactions (by hash):
 - "Transaction 0x…", "receipt for 0x…" → pocket_query or pocket_get_transaction / pocket_get_receipt
@@ -95,12 +100,23 @@ Native send flow:
 - wallet_sign_message for EIP-191 signing; wallet_switch_chain to change network
 - Respect POLICY_DENIED, WALLET_ALLOWED_CHAINS, and MAX_SEND_VALUE_ETH limits`;
 
-const INSTRUCTIONS_TX_HISTORY = `Transaction history and payments (EVM, requires EXPLORER_API_KEY on MCP server env):
-- "Last 5 transactions on my account with eth", "recent activity" → pocket_query (wallet must be connected)
+const INSTRUCTIONS_TX_HISTORY = `Transaction history and payments (EVM; tx history requires EXPLORER_API_KEY on MCP server env):
+- "Last 5 transactions on my account with eth", "recent activity" → pocket_query (wallet must be connected; explorer API)
+- "Audit account 0x…", "security check", "token approvals" → pocket_audit_account or pocket_query (__account_audit__) — Pocket RPC only
+- pocket_audit_account scans Pocket EVM mainnets via Pocket RPC: balances, nonce, block-scan recent txs, Approval logs + allowance checks
 - "Has 0x… ever received anything from me" → pocket_query (wallet must be connected; checks outgoing native + ERC-20)
 - There is NO JSON-RPC method eth_getTransactionByAddress — do NOT invent it or block-scan via agent
 - If error contains EXPLORER_API_KEY required: tell user to set EXPLORER_API_KEY (Etherscan API V2) in MCP server env and retry — do NOT loop agent tools
-- Default chain from query text or POCKET_DEFAULT_CHAIN when chain not mentioned`;
+- Default chain from query text or POCKET_DEFAULT_CHAIN when chain not mentioned
+
+Seven-feature suite (pocket_query or dedicated tools):
+- "Wallet health for 0x…", "how much gas have I spent?" → pocket_wallet_health or pocket_query
+- "Research USDC on Ethereum", "top holders of PEPE" → pocket_research_token or pocket_query
+- "Explain contract 0x…", "what does this contract do?" → pocket_explain_contract or pocket_query
+- "Active UNI proposals", "whale votes on Aave" → pocket_governance_query or pocket_query
+- "Is this token a scam?", "scan 0x… before I buy" → pocket_scan_address or pocket_query
+- "My DeFi positions", "Aave health factor" → pocket_defi_positions or pocket_query
+- "My relay counts", "operator status", "most profitable chain" → pocket_operator_status or pocket_query`;
 
 const INSTRUCTIONS_AGENT = `Agent, logs, and complex research:
 - pocket_query routes to agent internally for logs, portfolio, multi-clause, and contract research

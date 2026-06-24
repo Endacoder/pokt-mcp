@@ -16,6 +16,7 @@
     "tunnel:setup": "bash scripts/setup-cloudflare-tunnel.sh",
     "prod:up": "docker compose -f docker-compose.prod.yml up -d --build",
     "postinstall": "node scripts/dedupe-postcss.mjs",
+    "check:secrets": "node scripts/check-no-private-keys.mjs",
     "test": "npm run test --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present"
   },

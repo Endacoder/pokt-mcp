@@ -7,7 +7,6 @@ import { ToolCallsSummary, visibleToolCalls } from "./ToolCallsSummary";
 import { ThinkingPanel } from "./ThinkingPanel";
 import { TypingIndicator } from "./TypingIndicator";
 import { isPlaceholderAssistantContent, sanitizeAssistantContent } from "../lib/tool-calls";
-import { isThinkingEnabled } from "../lib/feature-flags";
 import { BRAND } from "../lib/brand";
 import type { SwapFlowState } from "../lib/swap-status";
 import type { Message } from "../lib/types";
@@ -68,15 +67,19 @@ export function ChatMessage({
   const showAssistantBubble =
     (isUser || displayContent || (message.streaming && !displayContent)) &&
     !(isSwapQuoteResult && displayContent.startsWith("### Swap quote"));
+  const thinkingLines = message.role === "assistant" ? (message.thinkingLog ?? []) : [];
+  const reasoningText = message.role === "assistant" ? message.reasoning : undefined;
+  const showThinking =
+    !isUser &&
+    (Boolean(reasoningText?.trim()) ||
+      (message.streaming &&
+        (thinkingLines.length > 0 || isPlaceholderAssistantContent(message.content))));
   const showTyping =
     !isUser &&
     message.streaming &&
     isPlaceholderAssistantContent(message.content) &&
     shownToolCalls.length === 0 &&
-    !(message.role === "assistant" && (message.thinkingLog?.length ?? 0) > 0);
-
-  const thinkingLines = message.role === "assistant" ? (message.thinkingLog ?? []) : [];
-  const showThinking = isThinkingEnabled() && !isUser && message.streaming && thinkingLines.length > 0;
+    thinkingLines.length === 0;
   const isStreamingText =
     !isUser && message.streaming && Boolean(displayContent) && !message.interrupted;
 
@@ -99,7 +102,7 @@ export function ChatMessage({
 
         <div className={`w-full max-w-[min(100%,42rem)] space-y-2 ${isUser ? "items-end" : "items-start"}`}>
           {!isUser && showThinking && (
-            <ThinkingPanel lines={thinkingLines} active={Boolean(message.streaming)} />
+            <ThinkingPanel lines={thinkingLines} reasoning={reasoningText} active={Boolean(message.streaming)} />
           )}
 
           {!isUser && shownToolCalls.length > 0 && (

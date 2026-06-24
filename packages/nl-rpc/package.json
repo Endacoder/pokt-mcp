@@ -16,6 +16,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@pokt-mcp/integrations": "*",
     "@pokt-mcp/pocket-client": "*",
     "@pokt-mcp/shared": "*",
     "viem": "^2.21.0"

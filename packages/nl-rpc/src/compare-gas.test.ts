@@ -37,6 +37,13 @@ describe("resolveCompareGasChains", () => {
       DEFAULT_COMPARE_GAS_CHAINS,
     );
   });
+
+  it("does not treat expanded market follow-up context as multi-chain gas compare", () => {
+    const expanded =
+      'Previous: "in 24 hours" | Follow-up: in 24 hours | Context: "AVAX 24h change: +1%"';
+    expect(resolveCompareGasChains(expanded)).toEqual([]);
+    expect(matchCompareGasQuery(expanded)).toBeNull();
+  });
 });
 
 describe("matchCompareGasQuery", () => {

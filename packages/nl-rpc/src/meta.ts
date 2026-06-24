@@ -31,11 +31,26 @@ const DATA_SOURCE_PATTERNS = [
 
 const MODEL_TYPO_PATTERN = /\b(mdoel|modle|moedl)\b/i;
 
+/** Whole-message greetings only — avoids matching "hi" inside real queries. */
+const GREETING_PATTERN =
+  /^(?:hi|hello|hey(?:\s+there)?|howdy|greetings|good(?:\s+(?:morning|afternoon|evening))?|sup|yo)[\s!.?,]*$/i;
+
 function normalizeQuery(query: string): string {
   return query
     .trim()
     .replace(/\s+/g, " ")
     .replace(MODEL_TYPO_PATTERN, "model");
+}
+
+export function isGreetingQuery(query: string): boolean {
+  return GREETING_PATTERN.test(normalizeQuery(query));
+}
+
+export function buildGreetingMessage(): string {
+  return [
+    "Hi! I'm the Pocket Network blockchain assistant.",
+    'Ask about blocks, balances, gas, prices, wallet health, and more — e.g. "latest block on eth" or "gas price on base".',
+  ].join(" ");
 }
 
 export function isMetaQuery(query: string): boolean {
@@ -44,6 +59,17 @@ export function isMetaQuery(query: string): boolean {
 
 export function matchMetaQuery(query: string): RpcIntent | null {
   const normalized = normalizeQuery(query);
+
+  if (isGreetingQuery(normalized)) {
+    return {
+      action: "read",
+      chain: "eth",
+      method: "__assistant_info__",
+      params: ["greeting"],
+      humanSummary: "Greeting",
+      riskLevel: "none",
+    };
+  }
 
   if (DATA_SOURCE_PATTERNS.some((pattern) => pattern.test(normalized))) {
     return {

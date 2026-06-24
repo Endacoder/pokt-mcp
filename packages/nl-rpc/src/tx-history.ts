@@ -1,9 +1,15 @@
 import { resolveChain } from "@pokt-mcp/pocket-client";
 import type { RpcIntent, SessionContext } from "@pokt-mcp/shared";
+import {
+  directionFor,
+  explorerAccountAction,
+  fetchExplorerTxList,
+  formatWeiToNative,
+  loadExplorerApiKey,
+  type ExplorerTokenTxRow,
+  type ExplorerTxRow,
+} from "./explorer-api.js";
 import { extractAddress, inferChain, resolveAddress, wantsMyWallet } from "./patterns.js";
-
-/** Unified Etherscan API V2 (multichain via chainid). */
-const EXPLORER_V2_BASE = "https://api.etherscan.io/v2/api";
 
 const TX_HISTORY_PATTERNS = [
   /\b(last|recent|latest)\s+(\d+)\s+transactions?\b/i,
@@ -153,25 +159,6 @@ export function matchPaymentFromMeQuery(
   };
 }
 
-function loadExplorerApiKey(): string | undefined {
-  return process.env.EXPLORER_API_KEY?.trim() || process.env.ETHERSCAN_API_KEY?.trim() || undefined;
-}
-
-function formatWeiToNative(weiHex: string, symbol: string): string {
-  const wei = BigInt(weiHex || "0x0");
-  const amount = Number(wei) / 1e18;
-  return `${amount.toFixed(6).replace(/\.?0+$/, "") || "0"} ${symbol}`;
-}
-
-function directionFor(address: string, from: string, to: string): "in" | "out" | "self" {
-  const addr = address.toLowerCase();
-  const f = from.toLowerCase();
-  const t = (to ?? "").toLowerCase();
-  if (f === addr && t === addr) return "self";
-  if (f === addr) return "out";
-  return "in";
-}
-
 async function fetchFromExplorer(
   chain: string,
   address: string,
@@ -179,50 +166,12 @@ async function fetchFromExplorer(
   apiKey: string,
 ): Promise<TxHistoryEntry[]> {
   const chainInfo = resolveChain(chain);
-  const chainId = chainInfo?.chainId;
-  if (!chainId) {
-    throw new Error(`No chain ID configured for ${chain}`);
-  }
-
-  const url = new URL(EXPLORER_V2_BASE);
-  url.searchParams.set("chainid", String(chainId));
-  url.searchParams.set("module", "account");
-  url.searchParams.set("action", "txlist");
-  url.searchParams.set("address", address);
-  url.searchParams.set("startblock", "0");
-  url.searchParams.set("endblock", "99999999");
-  url.searchParams.set("page", "1");
-  url.searchParams.set("offset", String(limit));
-  url.searchParams.set("sort", "desc");
-  url.searchParams.set("apikey", apiKey);
-
-  const res = await fetch(url.toString(), { headers: { Accept: "application/json" } });
-  if (!res.ok) {
-    throw new Error(`Explorer API failed (${res.status})`);
-  }
-
-  const json = (await res.json()) as {
-    status?: string;
-    message?: string;
-    result?: Array<{
-      hash: string;
-      from: string;
-      to: string;
-      value: string;
-      blockNumber: string;
-      timeStamp?: string;
-    }> | string;
-  };
-
-  if (json.status !== "1" || !Array.isArray(json.result)) {
-    const msg = typeof json.result === "string" ? json.result : json.message;
-    throw new Error(msg ?? "Explorer returned no transactions");
-  }
-
   const symbol = chainInfo?.nativeSymbol ?? "ETH";
   const explorer = chainInfo?.blockExplorer?.replace(/\/$/, "");
 
-  return json.result.slice(0, limit).map((tx) => ({
+  const rows = await fetchExplorerTxList(chain, address, limit, apiKey);
+
+  return rows.slice(0, limit).map((tx) => ({
     hash: tx.hash,
     from: tx.from,
     to: tx.to ?? "",
@@ -235,12 +184,14 @@ async function fetchFromExplorer(
   }));
 }
 
-async function fetchFromBlockScan(
+/** Recent txs via Pocket RPC block scan (no explorer index). Limited to recent blocks. */
+export async function fetchRecentTxsViaBlockScan(
   pocket: import("@pokt-mcp/pocket-client").PocketClient,
   chain: string,
   address: string,
   limit: number,
   maxBlocks = 150,
+  maxTxHashesPerBlock = 80,
 ): Promise<TxHistoryEntry[]> {
   const normalized = address.toLowerCase();
   const chainInfo = resolveChain(chain);
@@ -253,15 +204,26 @@ async function fetchFromBlockScan(
 
   for (let i = 0; i < maxBlocks && found.length < limit; i++) {
     const tag = `0x${(blockNum - BigInt(i)).toString(16)}`;
-    const blockResp = await pocket.rpc(chain, "eth_getBlockByNumber", [tag, true]);
+    const blockResp = await pocket.rpc(chain, "eth_getBlockByNumber", [tag, false]);
     const block = blockResp.result as {
       number?: string;
-      transactions?: Array<{ hash: string; from: string; to?: string; value?: string }>;
+      transactions?: string[];
     } | null;
-    if (!block?.transactions) continue;
+    const txHashes = block?.transactions ?? [];
+    if (txHashes.length === 0) continue;
 
-    for (const tx of block.transactions) {
-      const from = tx.from?.toLowerCase() ?? "";
+    for (const hash of txHashes.slice(0, maxTxHashesPerBlock)) {
+      if (found.length >= limit) break;
+      const txResp = await pocket.rpc(chain, "eth_getTransactionByHash", [hash]);
+      const tx = txResp.result as {
+        hash?: string;
+        from?: string;
+        to?: string;
+        value?: string;
+      } | null;
+      if (!tx?.hash || !tx.from) continue;
+
+      const from = tx.from.toLowerCase();
       const to = tx.to?.toLowerCase() ?? "";
       if (from !== normalized && to !== normalized) continue;
 
@@ -271,81 +233,14 @@ async function fetchFromBlockScan(
         to: tx.to ?? "",
         valueWei: tx.value ?? "0x0",
         valueNative: formatWeiToNative(tx.value ?? "0x0", symbol),
-        blockNumber: block.number ?? tag,
+        blockNumber: block?.number ?? tag,
         direction: directionFor(address, tx.from, tx.to ?? ""),
         explorerUrl: explorer ? `${explorer}/tx/${tx.hash}` : undefined,
       });
-      if (found.length >= limit) break;
     }
   }
 
   return found;
-}
-
-type ExplorerTxRow = {
-  hash: string;
-  from: string;
-  to: string;
-  value: string;
-  blockNumber: string;
-  timeStamp?: string;
-};
-
-type ExplorerTokenTxRow = {
-  hash: string;
-  from: string;
-  to: string;
-  value: string;
-  blockNumber: string;
-  tokenSymbol?: string;
-  timeStamp?: string;
-};
-
-async function explorerAccountAction<T>(
-  chain: string,
-  action: string,
-  address: string,
-  apiKey: string,
-  offset = 1000,
-): Promise<T[]> {
-  const chainInfo = resolveChain(chain);
-  const chainId = chainInfo?.chainId;
-  if (!chainId) {
-    throw new Error(`No chain ID configured for ${chain}`);
-  }
-
-  const url = new URL(EXPLORER_V2_BASE);
-  url.searchParams.set("chainid", String(chainId));
-  url.searchParams.set("module", "account");
-  url.searchParams.set("action", action);
-  url.searchParams.set("address", address);
-  url.searchParams.set("startblock", "0");
-  url.searchParams.set("endblock", "99999999");
-  url.searchParams.set("page", "1");
-  url.searchParams.set("offset", String(offset));
-  url.searchParams.set("sort", "desc");
-  url.searchParams.set("apikey", apiKey);
-
-  const res = await fetch(url.toString(), { headers: { Accept: "application/json" } });
-  if (!res.ok) {
-    throw new Error(`Explorer API failed (${res.status})`);
-  }
-
-  const json = (await res.json()) as {
-    status?: string;
-    message?: string;
-    result?: T[] | string;
-  };
-
-  if (json.status !== "1") {
-    const msg = typeof json.result === "string" ? json.result : json.message;
-    if (msg?.toLowerCase().includes("no transactions") || msg === "No transactions found") {
-      return [];
-    }
-    throw new Error(msg ?? "Explorer request failed");
-  }
-
-  return Array.isArray(json.result) ? json.result : [];
 }
 
 export async function fetchPaymentFromMe(
@@ -463,7 +358,7 @@ export async function fetchTxHistory(
     );
   }
 
-  const transactions = await fetchFromBlockScan(pocket, chain, address, limit, 30);
+  const transactions = await fetchRecentTxsViaBlockScan(pocket, chain, address, limit, 30);
   return {
     chain,
     chainName: chainInfo.name,

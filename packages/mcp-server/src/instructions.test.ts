@@ -29,6 +29,7 @@ describe("MCP_SERVER_INSTRUCTIONS", () => {
     expect(MCP_SERVER_INSTRUCTIONS).toContain("CoinGecko");
     expect(MCP_SERVER_INSTRUCTIONS).toContain("Show my balances across chains");
     expect(MCP_SERVER_INSTRUCTIONS).toContain("analyze-wallet");
+    expect(MCP_SERVER_INSTRUCTIONS).toContain("pocket_audit_account");
     expect(MCP_SERVER_INSTRUCTIONS).toContain("NL_PARSE_FAILED");
   });
 });

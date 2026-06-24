@@ -276,6 +276,7 @@ describe("routeQuery", () => {
   });
 
   it("returns helpful message when transaction is not found", async () => {
+    vi.stubEnv("TX_LOOKUP_POLL_TIMEOUT_MS", "100");
     const pocket = {
       rpc: vi.fn(async () => ({ result: null, meta: { chain: "eth", method: "eth_getTransactionByHash" } })),
     };
@@ -293,7 +294,7 @@ describe("routeQuery", () => {
     const result = events.find((e) => e.type === "result");
     expect(result?.data).toMatchObject({ route: "intent" });
     const answer = (result?.data as { answer?: string }).answer ?? "";
-    expect(answer).toContain("No transaction found");
+    expect(answer).toMatch(/No (transaction|receipt) found/);
     expect(answer).toContain("Possible reasons:");
     expect(answer).toContain("etherscan.io");
   });
@@ -350,5 +351,142 @@ describe("routeQuery", () => {
     expect(answer).toContain("across 2 chains");
     expect(answer).toContain("USDC");
     expect(answer).not.toContain("0 ETH ≈ 0.00 USD");
+  });
+
+  it("routes BTC week follow-up after session remembers market query", async () => {
+    globalThis.fetch = vi.fn(async (url: string) => {
+      if (String(url).includes("coingecko")) {
+        return Response.json({
+          market_data: {
+            price_change_percentage_7d: 3.5,
+            current_price: { usd: 97000 },
+          },
+        });
+      }
+      return Response.json({});
+    }) as typeof fetch;
+
+    const sessionContext = {
+      defaultChain: "eth",
+      lastMarketQuery: {
+        symbol: "BTC",
+        coingeckoId: "bitcoin",
+        kind: "priceChange" as const,
+        period: "24h" as const,
+      },
+    };
+
+    const events: Array<{ type: string; data: unknown }> = [];
+    for await (const event of routeQuery({
+      query: "how about for the week",
+      sessionContext,
+      history: [
+        { role: "user" as const, content: "how has btc been doing" },
+        { role: "assistant" as const, content: "BTC 24h change: +1%" },
+      ],
+      pocket: createPocketClient(),
+    })) {
+      events.push(event);
+    }
+
+    const result = events.find((e) => e.type === "result");
+    expect(result?.data).toMatchObject({ route: "intent" });
+    expect((result?.data as { answer?: string }).answer).toContain("BTC 7d change");
+  });
+
+  it("routes gas temporal follow-up from lastQuery session", async () => {
+    const pocket = {
+      rpc: vi.fn(async (_chain: string, method: string) => {
+        if (method === "eth_feeHistory") {
+          return {
+            result: { oldestBlock: "0x900", baseFeePerGas: ["0x4a817c800"] },
+            meta: {},
+          };
+        }
+        throw new Error(method);
+      }),
+    };
+
+    const events: Array<{ type: string; data: unknown }> = [];
+    for await (const event of routeQuery({
+      query: "what was it 1 hour ago",
+      sessionContext: {
+        defaultChain: "eth",
+        lastQuery: {
+          chain: "eth",
+          method: "eth_gasPrice",
+          subject: "gas",
+          params: [],
+        },
+      },
+      pocket: pocket as never,
+    })) {
+      events.push(event);
+    }
+
+    const result = events.find((e) => e.type === "result");
+    expect(result?.data).toMatchObject({ route: "intent" });
+    const answer = (result?.data as { answer?: string }).answer ?? "";
+    expect(answer.toLowerCase()).toMatch(/gas|gwei|hour/);
+  });
+
+  it("routes ETH in 1 week follow-up after 24h market session", async () => {
+    globalThis.fetch = vi.fn(async (url: string) => {
+      if (String(url).includes("coingecko")) {
+        return Response.json({
+          market_data: {
+            price_change_percentage_7d: 2.1,
+            current_price: { usd: 1735 },
+          },
+        });
+      }
+      return Response.json({});
+    }) as typeof fetch;
+
+    const events: Array<{ type: string; data: unknown }> = [];
+    for await (const event of routeQuery({
+      query: "in 1 week",
+      sessionContext: {
+        defaultChain: "eth",
+        lastMarketQuery: {
+          symbol: "ETH",
+          coingeckoId: "ethereum",
+          kind: "priceChange" as const,
+          period: "24h" as const,
+        },
+      },
+      pocket: createPocketClient(),
+    })) {
+      events.push(event);
+    }
+
+    const result = events.find((e) => e.type === "result");
+    expect(result?.data).toMatchObject({ route: "intent" });
+    expect((result?.data as { answer?: string }).answer).toContain("ETH 7d change");
+  });
+
+  it("explains unsupported market period for in 3 days after 7d session", async () => {
+    const events: Array<{ type: string; data: unknown }> = [];
+    for await (const event of routeQuery({
+      query: "in 3 days",
+      sessionContext: {
+        defaultChain: "eth",
+        lastMarketQuery: {
+          symbol: "ETH",
+          coingeckoId: "ethereum",
+          kind: "priceChange" as const,
+          period: "7d" as const,
+        },
+      },
+      pocket: createPocketClient(),
+    })) {
+      events.push(event);
+    }
+
+    const result = events.find((e) => e.type === "result");
+    expect(result?.data).toMatchObject({ route: "intent" });
+    const answer = (result?.data as { answer?: string }).answer ?? "";
+    expect(answer).toMatch(/CoinGecko does not provide/i);
+    expect(answer).not.toMatch(/7d change/i);
   });
 });

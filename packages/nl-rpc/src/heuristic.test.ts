@@ -46,6 +46,12 @@ describe("heuristic fallback", () => {
     expect(parsed.intent.params[0]).toBe("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48");
   });
 
+  it("parses gas assessment questions", async () => {
+    const parsed = await engine.parse("is gas low or high on ethereum");
+    expect(parsed.intent.method).toBe("eth_gasPrice");
+    expect(parsed.intent.chain).toBe("eth");
+  });
+
   it("does not parse most traded token as list chains", async () => {
     const parsed = await engine.parse(
       "in the last 24 hours what has been the most traded token on ETH chain",

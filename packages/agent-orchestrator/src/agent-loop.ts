@@ -6,10 +6,13 @@ import {
   resolveChain,
   type PocketClient,
 } from "@pokt-mcp/pocket-client";
-import type { LlmConfig, SessionContext } from "@pokt-mcp/shared";
-import { isWriteRpcMethod, loadAgentMaxSteps, loadLlmConfig } from "@pokt-mcp/shared";
+import type { ChatHistoryMessage, LlmConfig, SessionContext } from "@pokt-mcp/shared";
+import { isWriteRpcMethod, loadAgentMaxSteps, loadLlmConfig, prepareSanitizedQueryInput } from "@pokt-mcp/shared";
 import type { AgentEvent } from "./types.js";
+import { isSwapQuery } from "./complexity.js";
 import { assertAgentMethodAllowed, isAgentWriteMethod, loadAgentPolicyConfig } from "./policy.js";
+import { yieldStatus } from "./status-events.js";
+import { streamChatCompletion, type StreamedLlmResult } from "./llm-stream.js";
 
 const AGENT_SYSTEM_PROMPT = `You are a blockchain research agent with access to Pocket Network RPC tools.
 Answer the user's query by calling tools. Prefer read-only RPC calls.
@@ -21,6 +24,7 @@ If rpc_call fails with RPC_ERROR, fix params and retry or call list_methods firs
 NEVER invent RPC methods (eth_getTransactionByAddress does not exist). NEVER describe hypothetical tool calls — always execute rpc_call or other tools and summarize real results.
 NEVER suggest third-party RPC providers (Alchemy, Infura, etc.) — all reads go through Pocket Network via rpc_call.
 For wallet transaction history, use eth_getBlockByNumber with full txs or eth_getLogs — there is no single "get transactions by address" RPC method.
+NEVER provide manual DEX/swap/trade instructions (Uniswap routers, pair reserves, swap calldata). Token swaps are handled by Intent MCP — tell the user to ask for a swap quote instead.
 
 Known token contracts:
 ${formatKnownTokensForPrompt()}`;
@@ -107,10 +111,31 @@ type ChatMessage =
 
 export interface AgentLoopInput {
   query: string;
+  history?: ChatHistoryMessage[];
   sessionContext: SessionContext;
   maxSteps?: number;
   llmConfig?: LlmConfig | null;
   pocket?: PocketClient;
+}
+
+const MAX_AGENT_HISTORY_MESSAGES = 20;
+const MAX_AGENT_HISTORY_CONTENT = 800;
+
+function truncateHistoryContent(text: string): string {
+  const trimmed = text.trim();
+  if (trimmed.length <= MAX_AGENT_HISTORY_CONTENT) return trimmed;
+  return `${trimmed.slice(0, MAX_AGENT_HISTORY_CONTENT)}…`;
+}
+
+function buildAgentHistoryMessages(history?: ChatHistoryMessage[]): ChatMessage[] {
+  if (!history?.length) return [];
+  const capped = history.length > MAX_AGENT_HISTORY_MESSAGES
+    ? history.slice(-MAX_AGENT_HISTORY_MESSAGES)
+    : history;
+  return capped.map((msg) => ({
+    role: msg.role,
+    content: truncateHistoryContent(msg.content),
+  }));
 }
 
 export interface AgentLoopDeps {
@@ -193,53 +218,6 @@ async function executeAgentTool(
   }
 }
 
-async function callLlm(
-  config: LlmConfig,
-  messages: ChatMessage[],
-): Promise<{
-  content: string | null;
-  tool_calls?: Array<{ id: string; type: "function"; function: { name: string; arguments: string } }>;
-}> {
-  const response = await fetch(`${config.baseUrl}/chat/completions`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${config.apiKey}`,
-    },
-    body: JSON.stringify({
-      model: config.model,
-      messages,
-      tools: AGENT_TOOLS,
-      tool_choice: "auto",
-      temperature: 0,
-    }),
-  });
-
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error(`Agent LLM request failed (${response.status}): ${body.slice(0, 300)}`);
-  }
-
-  const payload = (await response.json()) as {
-    choices?: Array<{
-      message?: {
-        content?: string | null;
-        tool_calls?: Array<{
-          id: string;
-          type: "function";
-          function: { name: string; arguments: string };
-        }>;
-      };
-    }>;
-  };
-
-  const message = payload.choices?.[0]?.message;
-  return {
-    content: message?.content ?? null,
-    tool_calls: message?.tool_calls,
-  };
-}
-
 export function createAgentLoopDeps(overrides?: Partial<AgentLoopDeps>): AgentLoopDeps {
   const llmConfig = overrides?.llmConfig ?? loadLlmConfig();
   if (!llmConfig?.enabled) {
@@ -259,37 +237,79 @@ export async function* runAgentLoop(input: AgentLoopInput): AsyncGenerator<Agent
     ...(input.llmConfig ? { llmConfig: input.llmConfig } : {}),
   });
 
+  const sanitized = prepareSanitizedQueryInput({
+    query: input.query,
+    history: input.history,
+    sessionContext: input.sessionContext,
+  });
+
+  if (isSwapQuery(sanitized.query)) {
+    yield {
+      type: "error",
+      data: {
+        message:
+          "Token swaps are handled by the swap quote flow, not manual RPC. Rephrase as: swap 1 USDT to WETH",
+        code: "SWAP_USE_INTENT_MCP",
+      },
+    };
+    yield { type: "done", data: {} };
+    return;
+  }
+
   const maxSteps = input.maxSteps ?? loadAgentMaxSteps();
   const steps: Array<{ tool: string; args: unknown; result: unknown }> = [];
 
   const messages: ChatMessage[] = [
     { role: "system", content: AGENT_SYSTEM_PROMPT },
+    ...buildAgentHistoryMessages(sanitized.history),
     {
       role: "user",
-      content: `${input.query}${formatSessionBlock(input.sessionContext)}`,
+      content: `${sanitized.query}${formatSessionBlock(sanitized.sessionContext ?? input.sessionContext)}`,
     },
   ];
 
   try {
     for (let step = 0; step < maxSteps; step++) {
-      yield {
-        type: "status",
-        data: {
-          message: `Thinking (step ${step + 1}/${maxSteps})…`,
-          phase: "agent",
-        },
+      yield* yieldStatus(`Thinking (step ${step + 1}/${maxSteps})…`, "agent");
+
+      const stream = streamChatCompletion(deps.llmConfig, {
+        model: deps.llmConfig.model,
+        messages,
+        tools: AGENT_TOOLS,
+        tool_choice: "auto",
+        temperature: 0,
+        max_tokens: 1024,
+      });
+
+      let llmResponse: StreamedLlmResult | undefined;
+      let streamedText = false;
+      while (true) {
+        const step = await stream.next();
+        if (step.done) {
+          llmResponse = step.value;
+          break;
+        }
+        if (step.value.type === "token") streamedText = true;
+        yield step.value;
+      }
+
+      if (!llmResponse) {
+        throw new Error("Agent LLM stream ended without a result");
+      }
+
+      const llmResponseNormalized = {
+        content: llmResponse.content,
+        tool_calls: llmResponse.tool_calls,
       };
 
-      const llmResponse = await callLlm(deps.llmConfig, messages);
-
-      if (llmResponse.tool_calls?.length) {
+      if (llmResponseNormalized.tool_calls?.length) {
         messages.push({
           role: "assistant",
-          content: llmResponse.content,
-          tool_calls: llmResponse.tool_calls,
+          content: llmResponseNormalized.content,
+          tool_calls: llmResponseNormalized.tool_calls,
         });
 
-        for (const toolCall of llmResponse.tool_calls) {
+        for (const toolCall of llmResponseNormalized.tool_calls) {
           const toolName = toolCall.function.name;
           let args: Record<string, unknown> = {};
           try {
@@ -298,10 +318,7 @@ export async function* runAgentLoop(input: AgentLoopInput): AsyncGenerator<Agent
             args = {};
           }
 
-          yield {
-            type: "status",
-            data: { message: `Calling ${toolName}…`, phase: "tool" },
-          };
+          yield* yieldStatus(`Calling ${toolName}…`, "tool");
           yield {
             type: "tool",
             data: { tool: toolName, args, input: args, status: "running" },
@@ -350,7 +367,7 @@ export async function* runAgentLoop(input: AgentLoopInput): AsyncGenerator<Agent
       if (steps.length === 0 && step < maxSteps - 1) {
         messages.push({
           role: "assistant",
-          content: llmResponse.content,
+          content: llmResponseNormalized.content,
         });
         messages.push({
           role: "user",
@@ -360,12 +377,14 @@ export async function* runAgentLoop(input: AgentLoopInput): AsyncGenerator<Agent
         continue;
       }
 
-      const answer = llmResponse.content?.trim() || "Completed query.";
+      const answer = llmResponseNormalized.content?.trim() || "Completed query.";
       yield {
         type: "result",
         data: { route: "agent", steps, answer },
       };
-      yield { type: "token", data: { text: `\n${answer}` } };
+      if (!streamedText) {
+        yield { type: "token", data: { text: `\n${answer}` } };
+      }
       yield { type: "done", data: {} };
       return;
     }

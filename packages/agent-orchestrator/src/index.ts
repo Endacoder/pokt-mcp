@@ -1,7 +1,7 @@
 import { createNlRpcEngine, executeIntent } from "@pokt-mcp/nl-rpc";
 import { createPocketClient } from "@pokt-mcp/pocket-client";
 import type { ChatRequest, SessionContext } from "@pokt-mcp/shared";
-import { requireSessionId } from "@pokt-mcp/shared";
+import { prepareSanitizedQueryInput, requireSessionId } from "@pokt-mcp/shared";
 import { collectRouteQueryResult, routeQuery } from "./query-router.js";
 import type { AgentEvent } from "./types.js";
 
@@ -18,14 +18,36 @@ export { isSwapStatusQuery, formatSwapStatusAnswer } from "./intent-swap-status.
 export { isSendStatusQuery, formatSendStatusAnswer } from "./send-status.js";
 export { routeQuery, collectRouteQueryResult } from "./query-router.js";
 export type { QueryRoute, RouteQueryInput } from "./query-router.js";
-export { prepareSwapForSigning, submitSwapSignature } from "./intent-swap-execute.js";
-export type { SwapPrepareResult, SwapSubmitResult } from "./intent-swap-execute.js";
+export {
+  prepareSwapForSigning,
+  fetchQuoteConfirmation,
+  submitSwapSignature,
+  fetchSwapSigningInstructions,
+  getSwapIntentStatus,
+  pollSwapIntentStatus,
+  syncPermitSignerForIntent,
+} from "./intent-swap-execute.js";
+export type { SwapPrepareResult, SwapSubmitResult, SwapStatusResult, QuoteConfirmationResult } from "./intent-swap-execute.js";
 export type { SigningInstructions } from "./intent-swap-types.js";
 export {
   isQuoteExpiredError,
+  isConfirmationRequiredError,
   isRouteBuildError,
+  isInsufficientAllowanceError,
+  isSimulationTransferFailedError,
+  isOneinchOrderBuildError,
+  isOrderBuildError,
+  isUserPaidGasRequiredError,
+  isInvalidExecutionModeError,
   PermitAmountMismatchError,
+  OrderQuoteMismatchError,
 } from "./intent-swap-types.js";
+export type { ExpectedSwapQuote } from "./intent-swap-types.js";
+export {
+  normalizeSwapSignature,
+  isInvalidSignatureSubmitError,
+  isWalletAccountMismatchError,
+} from "./intent-swap-execute.js";
 export type { SwapRequoteParams } from "./intent-swap-types.js";
 
 const SYSTEM_PROMPT = `You are a blockchain assistant backed by Pocket Network MCP tools.
@@ -71,9 +93,16 @@ export function createAgentOrchestrator() {
           sessionContext.swapExecutionMode = input.swapExecutionMode;
         }
 
-        yield* routeQuery({
+        const sanitized = prepareSanitizedQueryInput({
           query: input.message,
+          history: input.history,
           sessionContext,
+        });
+
+        yield* routeQuery({
+          query: sanitized.query,
+          history: sanitized.history,
+          sessionContext: sanitized.sessionContext ?? sessionContext,
           pocket,
           onSessionUpdate: (patch) => {
             chatSessions.set(sid, { ...chatSessions.get(sid), ...sessionContext, ...patch });

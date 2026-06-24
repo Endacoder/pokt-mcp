@@ -11,7 +11,6 @@ export { loadSessionTokenConfig, isSessionTokenRequired };
 
 export function isTokenExemptPath(pathname: string, method: string): boolean {
   if (pathname === "/api/health") return true;
-  if (method === "GET" && pathname === "/api/wallet/config") return true;
   return method === "POST" && pathname === "/api/session/token";
 }
 

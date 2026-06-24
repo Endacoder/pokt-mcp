@@ -1,4 +1,10 @@
 import { buildCowOrderTypedData } from "./intent-cow-order.js";
+export {
+  isUserPaidGasRequiredError,
+  isUserPaidGasRoute,
+  quoteRequiresGasAck,
+  type GasRouteHint,
+} from "@pokt-mcp/shared";
 
 export type SigningInstructions = {
   type?: string;
@@ -34,12 +40,28 @@ export type ExpectedPermit = {
   amountAtomic: string;
 };
 
+export type ExpectedSwapQuote = {
+  tokenInAddress: string;
+  tokenOutAddress: string;
+  amountInAtomic: string;
+  chainId: number;
+};
+
 export class PermitAmountMismatchError extends Error {
   readonly code = "PERMIT_AMOUNT_MISMATCH";
 
   constructor(message: string) {
     super(message);
     this.name = "PermitAmountMismatchError";
+  }
+}
+
+export class OrderQuoteMismatchError extends Error {
+  readonly code = "ORDER_QUOTE_MISMATCH";
+
+  constructor(message: string) {
+    super(message);
+    this.name = "OrderQuoteMismatchError";
   }
 }
 
@@ -106,6 +128,108 @@ export function validatePermitAgainstQuote(
   }
 }
 
+function normalizeAddress(value: string): string {
+  return value.toLowerCase();
+}
+
+function chainIdFromDomain(domain: Record<string, unknown>): number | undefined {
+  const raw = domain.chainId;
+  if (typeof raw === "number" && Number.isFinite(raw)) return raw;
+  if (typeof raw === "string" && raw.trim()) {
+    const parsed = raw.startsWith("0x") ? parseInt(raw, 16) : parseInt(raw, 10);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return undefined;
+}
+
+/** Reject wallet prompts where gasless Order fields diverge from the quoted swap. */
+export function validateOrderAgainstQuote(
+  instructions: SigningInstructions,
+  expected: ExpectedSwapQuote,
+): void {
+  const payloads =
+    instructions.signingPayloads && instructions.signingPayloads.length > 0
+      ? instructions.signingPayloads
+      : extractSigningPayloads(instructions);
+
+  let expectedAmount: bigint;
+  try {
+    expectedAmount = BigInt(expected.amountInAtomic);
+  } catch {
+    throw new OrderQuoteMismatchError("Invalid expected swap amount for order validation.");
+  }
+
+  const tokenIn = normalizeAddress(expected.tokenInAddress);
+  const tokenOut = normalizeAddress(expected.tokenOutAddress);
+
+  for (const payload of payloads) {
+    if (payload.primaryType !== "Order") continue;
+
+    const domainChainId = chainIdFromDomain(payload.domain);
+    if (domainChainId != null && domainChainId !== expected.chainId) {
+      throw new OrderQuoteMismatchError(
+        `Order chainId ${domainChainId} does not match this quote (chain ${expected.chainId}). Request a fresh quote.`,
+      );
+    }
+
+    const message = payload.message;
+    const makerAsset = typeof message.makerAsset === "string" ? message.makerAsset : undefined;
+    const takerAsset = typeof message.takerAsset === "string" ? message.takerAsset : undefined;
+    const makingAmount = message.makingAmount;
+    const sellToken = typeof message.sellToken === "string" ? message.sellToken : undefined;
+    const buyToken = typeof message.buyToken === "string" ? message.buyToken : undefined;
+    const sellAmount = message.sellAmount;
+
+    if (makerAsset != null) {
+      if (normalizeAddress(makerAsset) !== tokenIn) {
+        throw new OrderQuoteMismatchError(
+          `Order makerAsset ${makerAsset} does not match quoted input token ${expected.tokenInAddress}.`,
+        );
+      }
+      if (takerAsset != null && normalizeAddress(takerAsset) !== tokenOut) {
+        throw new OrderQuoteMismatchError(
+          `Order takerAsset ${takerAsset} does not match quoted output token ${expected.tokenOutAddress}.`,
+        );
+      }
+      if (makingAmount != null && BigInt(String(makingAmount)) !== expectedAmount) {
+        throw new OrderQuoteMismatchError(
+          `Order makingAmount (${String(makingAmount)}) does not match quoted input (${expected.amountInAtomic}). Do not sign.`,
+        );
+      }
+      continue;
+    }
+
+    if (sellToken != null) {
+      if (normalizeAddress(sellToken) !== tokenIn) {
+        throw new OrderQuoteMismatchError(
+          `Order sellToken ${sellToken} does not match quoted input token ${expected.tokenInAddress}.`,
+        );
+      }
+      if (buyToken != null && normalizeAddress(buyToken) !== tokenOut) {
+        throw new OrderQuoteMismatchError(
+          `Order buyToken ${buyToken} does not match quoted output token ${expected.tokenOutAddress}.`,
+        );
+      }
+      if (sellAmount != null && BigInt(String(sellAmount)) !== expectedAmount) {
+        throw new OrderQuoteMismatchError(
+          `Order sellAmount (${String(sellAmount)}) does not match quoted input (${expected.amountInAtomic}). Do not sign.`,
+        );
+      }
+    }
+  }
+}
+
+export function validateSwapQuoteAgainstInstructions(
+  instructions: SigningInstructions,
+  expected: ExpectedSwapQuote,
+): void {
+  validatePermitAgainstQuote(instructions, {
+    tokenAddress: expected.tokenInAddress,
+    amountAtomic: expected.amountInAtomic,
+  });
+  validateOrderAgainstQuote(instructions, expected);
+}
+
 export type PrepareIntentResponse = {
   intentId?: string;
   intent?: { intentId?: string; id?: string; signingInstructions?: unknown };
@@ -119,6 +243,8 @@ export type SubmitIntentResponse = {
   status?: string;
   txHash?: string;
   transactionHash?: string;
+  orderHash?: string;
+  nextUnsignedIntent?: unknown;
   [key: string]: unknown;
 };
 
@@ -291,6 +417,10 @@ export function normalizeSigningInstructions(
   );
 }
 
+export function isConfirmationRequiredError(message: string): boolean {
+  return /CONFIRMATION_REQUIRED|Wallet confirmation signature required/i.test(message);
+}
+
 export function isQuoteExpiredError(message: string): boolean {
   return /^quote\s+q_|QUOTE_EXPIRED|has expired\. request a new quote/i.test(message);
 }
@@ -301,6 +431,28 @@ export function isRouteBuildError(message: string): boolean {
   );
 }
 
+export function isSigningPayloadUnavailableError(message: string): boolean {
+  return /SIGNING_PAYLOAD_UNAVAILABLE/i.test(message);
+}
+
+/** 1inch Fusion on Ethereum mainnet — Intent MCP omits feeReceiver when platform fee is set. */
+export function isOneinchOrderBuildError(message: string): boolean {
+  return /FEE_RECEIVER_REQUIRED|feeReceiver is required/i.test(message);
+}
+
+export function isOrderBuildError(message: string): boolean {
+  return /Order build failed/i.test(message) || isOneinchOrderBuildError(message);
+}
+
+export function isInsufficientAllowanceError(message: string): boolean {
+  return /Insufficient allowance|InputValidationError.*allowance/i.test(message);
+}
+
+/** Gas-route simulation before Permit2 approval — router transferFrom reverts. */
+export function isSimulationTransferFailedError(message: string): boolean {
+  return /TRANSFER_FROM_FAILED|transfer.?from.?failed/i.test(message);
+}
+
 export type SwapRequoteParams = {
   fromChain: number;
   toChain: number;
@@ -308,5 +460,22 @@ export type SwapRequoteParams = {
   tokenOut: string;
   amount: string;
   slippageBps?: number;
-  executionMode?: "any" | "gasless" | "gas";
+  executionMode?: "any" | "gasless";
 };
+
+/** Mainnet gasless fills rarely succeed under ~$20 — prefer best-price routing. */
+export function applyMainnetSmallSwapGasMode(requote?: SwapRequoteParams): SwapRequoteParams | undefined {
+  if (!requote || requote.fromChain !== 1) return requote;
+  try {
+    if (BigInt(requote.amount) < 20_000_000n && requote.executionMode === "gasless") {
+      return { ...requote, executionMode: "any" };
+    }
+  } catch {
+    /* ignore invalid amount */
+  }
+  return requote;
+}
+
+export function isInvalidExecutionModeError(message: string): boolean {
+  return /INVALID_EXECUTION_MODE/i.test(message);
+}

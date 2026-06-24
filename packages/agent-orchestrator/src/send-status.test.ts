@@ -6,10 +6,29 @@ describe("isSendStatusQuery", () => {
     expect(isSendStatusQuery("did that send succeed?")).toBe(true);
     expect(isSendStatusQuery("was my transaction confirmed")).toBe(true);
     expect(isSendStatusQuery("what is the transfer status")).toBe(true);
+    expect(
+      isSendStatusQuery("did it go through", {
+        lastSendTx: { txHash: "0xabc", chain: "eth" },
+      }),
+    ).toBe(true);
+    expect(
+      isSendStatusQuery("still confirming", {
+        lastSendTx: { txHash: "0xabc", chain: "eth" },
+      }),
+    ).toBe(true);
   });
 
   it("does not match new send requests", () => {
     expect(isSendStatusQuery("send 0.01 eth to 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045")).toBe(false);
+  });
+
+  it("matches pasted hash from last session send", () => {
+    const hash = "0x3b8441f31ef8d899988834af0dc99a7c0c52106ed8502fda703362b60c4e01c8";
+    expect(
+      isSendStatusQuery(hash, {
+        lastSendTx: { txHash: hash, chain: "eth" },
+      }),
+    ).toBe(true);
   });
 
   it("does not match swap status follow-ups", () => {

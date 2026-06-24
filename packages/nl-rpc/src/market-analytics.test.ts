@@ -8,6 +8,13 @@ import {
 } from "./market-analytics.js";
 
 describe("market analytics", () => {
+  it("matches asset trading volume queries", () => {
+    expect(isMarketAnalyticsQuery("what volume of trade has btc been doing last 3 days")).toBe(true);
+    const intent = matchMarketAnalyticsQuery("what volume of trade has btc been doing last 3 days");
+    expect(intent?.method).toBe("__asset_trading_volume__");
+    expect(intent?.params).toEqual(["bitcoin", "BTC", 3]);
+  });
+
   it("matches most traded token queries", () => {
     expect(
       isMarketAnalyticsQuery("in the last 24 hours what has been the most traded token on ETH chain"),

@@ -3,57 +3,20 @@
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import type { ChainInfo } from "../lib/api";
-import { BRAND } from "../lib/brand";
 import {
   getProviderChainId,
-  MAINNET_WC_CHAIN_IDS,
   slugFromChainId,
 } from "../lib/chain-config";
 import { ensureSessionToken } from "../lib/session";
-import { syncWalletSession } from "../lib/wallet-session";
-import { getWcProjectId } from "../lib/wallet-config";
-import { connectInjectedWallet } from "../lib/wallet-connect";
-import type { EthereumProvider } from "../lib/ethereum";
+import { clearWalletSession, syncWalletSession } from "../lib/wallet-session";
+import {
+  connectInjectedWallet,
+  disconnectWallet,
+} from "../lib/wallet-connect";
+import type { WalletConnectionType } from "../lib/wallet-provider";
 
-export type WalletConnectionType = "injected" | "walletconnect";
-
-export { connectInjectedWallet } from "../lib/wallet-connect";
-
-let wcProvider: EthereumProvider | undefined;
-
-export async function connectWalletConnect(): Promise<{ address: string; provider: NonNullable<Window["ethereum"]> }> {
-  const projectId = await getWcProjectId();
-
-  if (wcProvider) {
-    const existing = (await wcProvider.request({ method: "eth_accounts" })) as string[];
-    if (existing[0]) {
-      window.ethereum = wcProvider;
-      return { address: existing[0], provider: wcProvider };
-    }
-  }
-
-  const { default: EthereumProviderWC } = await import("@walletconnect/ethereum-provider");
-  const provider = (await EthereumProviderWC.init({
-    projectId,
-    chains: [MAINNET_WC_CHAIN_IDS[0]],
-    optionalChains: [...MAINNET_WC_CHAIN_IDS],
-    showQrModal: true,
-    metadata: {
-      name: BRAND.name,
-      description: BRAND.description,
-      url: window.location.origin,
-      icons: ["/brand/agent-mark.svg"],
-    },
-  })) as EthereumProvider;
-
-  await provider.request({ method: "eth_requestAccounts" });
-  const accounts = (await provider.request({ method: "eth_accounts" })) as string[];
-  const address = accounts[0];
-  if (!address) throw new Error("WalletConnect: no accounts");
-  wcProvider = provider;
-  window.ethereum = provider;
-  return { address, provider };
-}
+export type { WalletConnectionType } from "../lib/wallet-provider";
+export { connectInjectedWallet, disconnectWallet } from "../lib/wallet-connect";
 
 function truncateAddress(address: string) {
   return `${address.slice(0, 6)}…${address.slice(-4)}`;
@@ -64,11 +27,11 @@ const MENU_WIDTH_PX = 208; // w-52
 function WalletMenu({
   menuRef,
   style,
-  onConnect,
+  onDisconnect,
 }: {
   menuRef: RefObject<HTMLDivElement | null>;
   style: { top: number; left: number };
-  onConnect: (mode: WalletConnectionType) => void;
+  onDisconnect: () => void;
 }) {
   return createPortal(
     <div
@@ -80,18 +43,10 @@ function WalletMenu({
       <button
         type="button"
         role="menuitem"
-        className="block w-full px-4 py-2.5 text-left text-sm text-pocket-foreground transition-colors hover:bg-pocket-elevated hover:text-pocket-accent"
-        onClick={() => onConnect("injected")}
+        className="block w-full px-4 py-2.5 text-left text-sm text-red-400 transition-colors hover:bg-pocket-elevated"
+        onClick={onDisconnect}
       >
-        MetaMask (Injected)
-      </button>
-      <button
-        type="button"
-        role="menuitem"
-        className="block w-full px-4 py-2.5 text-left text-sm text-pocket-foreground transition-colors hover:bg-pocket-elevated hover:text-pocket-accent"
-        onClick={() => onConnect("walletconnect")}
-      >
-        WalletConnect
+        Disconnect
       </button>
     </div>,
     document.body,
@@ -103,11 +58,13 @@ export function WalletButton({
   chains,
   connectedAddress,
   onConnected,
+  onDisconnected,
 }: {
   apiUrl: string;
   chains: ChainInfo[];
   connectedAddress?: string;
   onConnected: (address: string, mode: WalletConnectionType, chainSlug: string, chainId: number) => void;
+  onDisconnected?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -151,25 +108,46 @@ export function WalletButton({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [open]);
 
-  async function connect(mode: WalletConnectionType) {
+  async function connect() {
     setBusy(true);
     setOpen(false);
     try {
       await ensureSessionToken(apiUrl);
-      const { address, provider } =
-        mode === "injected" ? await connectInjectedWallet() : await connectWalletConnect();
+      const { address, provider } = await connectInjectedWallet();
       const chainId = await getProviderChainId(provider);
       const chainSlug = slugFromChainId(chainId, chains);
       if (!chainSlug) {
         throw new Error(`Unsupported wallet chain (ID ${chainId}). Switch to a Pocket-supported network.`);
       }
       await syncWalletSession(apiUrl, address, chainSlug);
-      onConnected(address, mode, chainSlug, chainId);
+      onConnected(address, "injected", chainSlug, chainId);
     } catch (err) {
       alert(err instanceof Error ? err.message : String(err));
     } finally {
       setBusy(false);
     }
+  }
+
+  async function disconnect() {
+    setBusy(true);
+    setOpen(false);
+    try {
+      await disconnectWallet();
+      await clearWalletSession(apiUrl);
+      onDisconnected?.();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function handleClick() {
+    if (connectedAddress) {
+      setOpen((v) => !v);
+      return;
+    }
+    void connect();
   }
 
   return (
@@ -183,14 +161,14 @@ export function WalletButton({
             : "bg-pocket-gradient text-white shadow-sm hover:shadow-pocket-accent hover:brightness-110"
         }`}
         disabled={busy}
-        onClick={() => setOpen((v) => !v)}
+        onClick={handleClick}
         aria-expanded={open}
-        aria-haspopup="menu"
+        aria-haspopup={connectedAddress ? "menu" : undefined}
       >
         {busy ? "Connecting…" : connectedAddress ? truncateAddress(connectedAddress) : "Connect Wallet"}
       </button>
-      {open && menuStyle ? (
-        <WalletMenu menuRef={menuRef} style={menuStyle} onConnect={connect} />
+      {open && menuStyle && connectedAddress ? (
+        <WalletMenu menuRef={menuRef} style={menuStyle} onDisconnect={disconnect} />
       ) : null}
     </>
   );

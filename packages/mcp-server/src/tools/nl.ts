@@ -5,7 +5,7 @@ import { executeIntent } from "@pokt-mcp/nl-rpc";
 import { isAgentLoopEnabled } from "@pokt-mcp/shared";
 import { z } from "zod";
 import { getMcpSession, mergeMcpSession, updateMcpSession } from "../session.js";
-import { asToolServer, textResult } from "./helpers.js";
+import { asToolServer, READ_ONLY_ANNOTATION, textResult } from "./helpers.js";
 
 interface NlToolDeps {
   nlRpc: NlRpcEngine;
@@ -125,5 +125,6 @@ export function registerNlTools(server: McpServer, deps: NlToolDeps) {
         riskLevel: isWrite ? "high" : "none",
       });
     },
+    READ_ONLY_ANNOTATION,
   );
 }

@@ -1,17 +1,9 @@
 import { resolveChain } from "@pokt-mcp/pocket-client";
 import type { LastSendTransaction, SessionContext } from "@pokt-mcp/shared";
-import { wantsSend } from "@pokt-mcp/nl-rpc";
+import { isSendStatusPhrase, isSessionTxHashQuery, isVagueStatusFollowUp, pollTxLookup, wantsSend } from "@pokt-mcp/nl-rpc";
 import type { PocketClient } from "@pokt-mcp/pocket-client";
 import { isSwapStatusQuery } from "./intent-swap-status.js";
 import type { AgentEvent } from "./types.js";
-
-const SEND_STATUS_PATTERNS = [
-  /\b(did|was|has|have)\s+(?:that|the|my|it)\s+(?:send|transfer|transaction|tx|payment)\b/i,
-  /\b(?:send|transfer|transaction|tx|payment)\s+(?:status|succeed(?:ed)?|successful|complete(?:d)?|done|fail(?:ed)?|go through|confirm(?:ed)?|mined)\b/i,
-  /\bdid\s+(?:that|it|the)\s+(?:send|transfer|payment|transaction|tx)\s+(?:work|succeed|go through|complete|confirm)\b/i,
-  /\b(?:check|what(?:'s| is))\s+(?:the\s+)?(?:send|transfer|transaction|tx)\s+status\b/i,
-  /\b(?:is|was)\s+(?:my|the|that)\s+(?:send|transfer|transaction|tx|payment)\s+(?:done|complete|successful|confirmed|mined)\b/i,
-];
 
 type TxReceipt = {
   status?: string;
@@ -19,12 +11,15 @@ type TxReceipt = {
   transactionHash?: string;
 };
 
-export function isSendStatusQuery(message: string): boolean {
+export function isSendStatusQuery(message: string, sessionContext?: SessionContext): boolean {
   if (wantsSend(message)) return false;
-  if (isSwapStatusQuery(message)) return false;
+  if (isSwapStatusQuery(message, sessionContext)) return false;
   const q = message.trim();
   if (/\bswap\b/i.test(q)) return false;
-  return SEND_STATUS_PATTERNS.some((pattern) => pattern.test(q));
+  if (isSendStatusPhrase(q)) return true;
+  if (sessionContext?.lastSendTx && isVagueStatusFollowUp(q)) return true;
+  if (isSessionTxHashQuery(q, sessionContext)) return true;
+  return false;
 }
 
 function receiptStatus(receipt: TxReceipt | null | undefined): LastSendTransaction["status"] {
@@ -105,12 +100,24 @@ export async function* runSendStatusRoute(
       },
     };
 
-    const resp = await pocket.rpc<TxReceipt | null>(last.chain, "eth_getTransactionReceipt", [
+    const polled = await pollTxLookup(
+      pocket,
+      last.chain,
       last.txHash,
-    ]);
-    const receipt = resp.result ?? null;
-    const status = receiptStatus(receipt);
-    const answer = formatSendStatusAnswer(last, receipt);
+      "eth_getTransactionReceipt",
+      { timeoutMs: 60_000, pollIntervalMs: 2_000 },
+    );
+    const receipt = (polled.result as TxReceipt | null) ?? null;
+    const status = receipt ? receiptStatus(receipt) : "pending";
+    let answer = formatSendStatusAnswer(last, receipt);
+    if (!receipt) {
+      answer += [
+        "",
+        polled.polled
+          ? "The transaction is not visible on Pocket RPC yet. The wallet returned a hash, but it may not have been broadcast — verify on the block explorer or retry the send."
+          : "Receipt not available yet — the transfer may still be pending.",
+      ].join("\n");
+    }
 
     onSessionUpdate?.({
       lastSendTx: {

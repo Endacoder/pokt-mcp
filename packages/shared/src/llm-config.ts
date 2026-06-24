@@ -92,6 +92,13 @@ export function loadAgentMaxSteps(env: NodeJS.ProcessEnv = process.env): number 
   return Number.isFinite(n) && n > 0 ? n : 8;
 }
 
+/** Upper bound for OpenAI-compatible LLM HTTP calls (avoid Cloudflare 524 on hung proxies). */
+export function loadLlmRequestTimeoutMs(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = env.LLM_REQUEST_TIMEOUT_MS;
+  const n = raw ? parseInt(raw, 10) : 90_000;
+  return Number.isFinite(n) && n >= 5_000 ? n : 90_000;
+}
+
 export function loadLlmConfig(env: NodeJS.ProcessEnv = process.env): LlmConfig | null {
   if (!isEnabled(env)) {
     return null;

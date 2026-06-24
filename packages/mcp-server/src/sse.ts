@@ -3,11 +3,13 @@ import { createServer } from "node:http";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import { createNlRpcEngine } from "@pokt-mcp/nl-rpc";
-import { createPocketClient, listChains, resolveChain } from "@pokt-mcp/pocket-client";
+import { createPocketClient, getRegistrySource, initRegistry, listChains, resolveChain } from "@pokt-mcp/pocket-client";
 import { logLlmConfigStatus, validateLlmConfig } from "@pokt-mcp/shared";
 import { createWalletBridge } from "@pokt-mcp/wallet-bridge";
 import { MCP_SERVER_INSTRUCTIONS, MCP_TOOL_GUIDE } from "./instructions.js";
 import { registerAgentTools } from "./tools/agent.js";
+import { registerAuditTools } from "./tools/audit.js";
+import { registerFeatureTools } from "./tools/features.js";
 import { registerDiscoveryTools } from "./tools/discovery.js";
 import { registerNlTools } from "./tools/nl.js";
 import { registerQueryTools } from "./tools/query.js";
@@ -38,7 +40,8 @@ function registerToolGuideResource(server: McpServer) {
   );
 }
 
-export function createMcpApp() {
+export async function createMcpApp() {
+  await initRegistry();
   const pocket = createPocketClient();
   const nlRpc = createNlRpcEngine();
   const wallet = createWalletBridge();
@@ -48,8 +51,10 @@ export function createMcpApp() {
   );
 
   registerQueryTools(server, { pocket });
-  registerDiscoveryTools(server, { listChains, resolveChain });
+  registerDiscoveryTools(server, { listChains, resolveChain, getRegistrySource });
   registerReadTools(server, { pocket, resolveChain });
+  registerAuditTools(server, { pocket });
+  registerFeatureTools(server, { pocket });
   registerRpcTools(server, { pocket, resolveChain });
   registerNlTools(server, { nlRpc, pocket });
   registerAgentTools(server, { pocket });
@@ -68,7 +73,7 @@ export function createMcpApp() {
 }
 
 export async function startHttpMcp(port = 3002) {
-  const server = createMcpApp();
+  const server = await createMcpApp();
   const transports = new Map<string, SSEServerTransport>();
 
   const httpServer = createServer(async (req, res) => {

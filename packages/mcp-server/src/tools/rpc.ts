@@ -3,7 +3,7 @@ import type { ChainInfo, PocketClient } from "@pokt-mcp/pocket-client";
 import { enrichTxLookupOutput } from "@pokt-mcp/nl-rpc";
 import { z } from "zod";
 import { loadPolicyConfig, assertMethodAllowed } from "../middleware/policy.js";
-import { asToolServer, chainNotFound, textResult } from "./helpers.js";
+import { asToolServer, chainNotFound, READ_ONLY_ANNOTATION, textResult } from "./helpers.js";
 
 interface RpcToolDeps {
   pocket: PocketClient;
@@ -37,6 +37,7 @@ export function registerRpcTools(server: McpServer, deps: RpcToolDeps) {
         return textResult({ error: message }, true);
       }
     },
+    READ_ONLY_ANNOTATION,
   );
 
   s.tool(
@@ -69,5 +70,6 @@ export function registerRpcTools(server: McpServer, deps: RpcToolDeps) {
         return textResult({ error: message }, true);
       }
     },
+    READ_ONLY_ANNOTATION,
   );
 }

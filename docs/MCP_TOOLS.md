@@ -18,9 +18,12 @@ See [USE_CASES.md](./USE_CASES.md) for the full use case catalog.
 |-------|------|----------|
 | `query` | string | yes |
 | `chain` | string | no — default chain slug |
-| `sessionId` | string | no — follow-up context |
+| `sessionId` | string | no — follow-up context (server remembers `lastMarketQuery`, `lastQuery`, balances, swap/send) |
+| `history` | array | no — prior chat turns `{ role, content }` for follow-up expansion (web UI sends this; MCP can rely on session + agent context) |
 
 **Output:** `{ route, answer, intent, output, steps, fallbackUsed }` or `{ requiresConfirmation, intent }` for writes.
+
+**Follow-ups:** Short replies like “how about for the week” or “what was gas an hour ago” use **session** memory when available, and **history** when the client sends prior turns. See [DEMO_PROMPTS.md](./DEMO_PROMPTS.md) conversation follow-up tables.
 
 Swap **execution** queries return an error directing agents to a third-party swap MCP.
 
@@ -117,6 +120,29 @@ Get ERC-20 token balance for an address.
 | `address` | string | yes |
 
 **Output:** `{ chain, symbol, address, tokenAddress, balance, balanceRaw, decimals }`
+
+---
+
+### `pocket_audit_account`
+
+Multi-chain security audit for an EVM address across Pocket mainnets via **Pocket Network RPC only**: portfolio (USD estimate), account type (EOA vs contract), recent native txs (block scan), and token approval risks (unlimited/high allowances).
+
+No explorer API required. Approvals are discovered via Pocket `eth_getLogs` (Approval events) plus known spenders — not a complete on-chain approval index.
+
+**Input:**
+
+| Field | Type | Required | Default |
+|-------|------|----------|---------|
+| `address` | string | yes | — |
+| `activityTxLimit` | number | no | `5` |
+| `activityBlockScanDepth` | number | no | `150` |
+| `approvalLogBlockRange` | number | no | `50000` |
+| `maxApprovalsPerChain` | number | no | `25` |
+| `scanKnownTokens` | boolean | no | `true` |
+
+**Output:** `{ summary, primaryDataSource, riskLevel, address, scannedChains, activeChains, portfolio, chains, findings, limitations }`
+
+For "my account" audits: call `wallet_get_status` first and pass `connectedAddress` as `address`.
 
 ---
 
@@ -436,6 +462,22 @@ Broadcast a pre-signed raw transaction.
 
 ---
 
+## Feature tools (seven-feature suite)
+
+| Tool | Description |
+|------|-------------|
+| `pocket_wallet_health` | Health score, gas fees, token history, portfolio, approval risks |
+| `pocket_research_token` | Spot price, volume, top holders, safety preview |
+| `pocket_explain_contract` | Verified source, proxy detection, function summary, verdict |
+| `pocket_governance_query` | Snapshot proposals, votes, whale tracking |
+| `pocket_scan_address` | GoPlus + audit scam/rug detection for wallet or contract |
+| `pocket_defi_positions` | DeFiLlama positions + Aave health factor |
+| `pocket_operator_status` | Pocket Shannon supplier status, relay difficulty, metrics |
+
+All routes are also available via `pocket_query` natural language (virtual methods `__wallet_health__`, etc.).
+
+---
+
 ## MCP Resources
 
 | URI | Description |
@@ -455,6 +497,7 @@ Broadcast a pre-signed raw transaction.
 |--------|-------------|
 | `analyze-wallet` | Portfolio analysis workflow using pocket_query |
 | `explain-tx` | Transaction + receipt explanation workflow |
+| `explain-contract` | Smart contract explainer via pocket_explain_contract |
 | `build-contract-call` | Guided calldata for pocket_call_contract |
 
 ---

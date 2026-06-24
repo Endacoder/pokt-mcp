@@ -54,12 +54,18 @@ describe("isSwapQuery", () => {
   it("detects swap and trade requests", () => {
     expect(isSwapQuery("swap 50 USDC to ETH on Base")).toBe(true);
     expect(isSwapQuery("trade USDC for WETH")).toBe(true);
+    expect(isSwapQuery("swap1 usdt to wth")).toBe(true);
     expect(isSwapQuery("latest block on base")).toBe(false);
   });
 
   it("does not treat read-only price quotes as swaps", () => {
     expect(isSwapQuery("how much USDT can i get for 1 ETH")).toBe(false);
     expect(shouldUseAgentFirst("how much USDT can i get for 1 ETH", false)).toBe(false);
+  });
+
+  it("does not treat trading volume questions as swaps", () => {
+    expect(isSwapQuery("what volume of trade has btc been doing last 3 days")).toBe(false);
+    expect(isSwapQuery("btc trading volume last 7 days")).toBe(false);
   });
 
   it("does not treat swap status follow-ups as new swap requests", () => {

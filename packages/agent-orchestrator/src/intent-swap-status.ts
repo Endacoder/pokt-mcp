@@ -1,20 +1,15 @@
 import type { IntentMcpConfig, LastSwapIntent, SessionContext } from "@pokt-mcp/shared";
+import { isSwapStatusPhrase, isVagueStatusFollowUp } from "@pokt-mcp/nl-rpc";
 import { createIntentMcpSwapClient } from "./intent-mcp-client.js";
 import { parseSwapExecutionQuery } from "./intent-swap.js";
 import type { AgentEvent } from "./types.js";
 
-const SWAP_STATUS_PATTERNS = [
-  /\b(did|was|has|have)\s+(?:that|the|my|it)\s+swap\b/i,
-  /\b(?:swap|trade)\s+(?:status|succeed(?:ed)?|successful|complete(?:d)?|done|fail(?:ed)?|go through)\b/i,
-  /\bdid\s+(?:that|it|the swap)\s+(?:work|succeed|go through|complete)\b/i,
-  /\b(?:check|what(?:'s| is))\s+(?:the\s+)?swap\s+status\b/i,
-  /\b(?:is|was)\s+(?:my|the|that)\s+swap\s+(?:done|complete|successful|successful)\b/i,
-];
-
-export function isSwapStatusQuery(message: string): boolean {
+export function isSwapStatusQuery(message: string, sessionContext?: SessionContext): boolean {
   if (parseSwapExecutionQuery(message)) return false;
   const q = message.trim();
-  return SWAP_STATUS_PATTERNS.some((pattern) => pattern.test(q));
+  if (isSwapStatusPhrase(q)) return true;
+  if (sessionContext?.lastSwapIntent && isVagueStatusFollowUp(q)) return true;
+  return false;
 }
 
 function extractStatusField(raw: Record<string, unknown>, ...keys: string[]): string | undefined {

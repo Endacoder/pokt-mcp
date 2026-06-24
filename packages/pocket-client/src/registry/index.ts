@@ -1,28 +1,53 @@
-import type { ChainInfo } from "@pokt-mcp/shared";
-import chains from "./chains.json" with { type: "json" };
+import type { ChainInfo, ChainStatus } from "@pokt-mcp/shared";
+import { loadBundledRegistry, loadRemoteRegistry, rebuildAliasIndex } from "./loader.js";
+import { runLivenessProbes } from "./liveness.js";
 
-const PORTAL_BASE = process.env.POCKET_PORTAL_BASE ?? "https://api.pocket.network";
+let registry: ChainInfo[] = loadBundledRegistry();
+let bySlug = new Map<string, ChainInfo>();
+let byAlias = new Map<string, ChainInfo>();
+let initPromise: Promise<void> | null = null;
+let registrySource: "bundled" | "remote" = "bundled";
 
-function buildEndpoint(slug: string): string {
-  return `https://${slug}.${PORTAL_BASE.replace(/^https?:\/\//, "")}`;
+function applyIndexes(chains: ChainInfo[]) {
+  registry = chains;
+  const indexes = rebuildAliasIndex(chains);
+  bySlug = indexes.bySlug;
+  byAlias = indexes.byAlias;
 }
 
-const registry: ChainInfo[] = (chains as Omit<ChainInfo, "endpoint">[]).map((c) => ({
-  ...c,
-  endpoint: buildEndpoint(c.slug),
-}));
+applyIndexes(registry);
 
-const bySlug = new Map(registry.map((c) => [c.slug, c]));
-const byAlias = new Map<string, ChainInfo>();
+function updateChainStatus(slug: string, status: ChainStatus) {
+  const chain = bySlug.get(slug);
+  if (!chain) return;
+  chain.status = status;
+}
 
-for (const chain of registry) {
-  byAlias.set(chain.slug.toLowerCase(), chain);
-  for (const alias of chain.aliases) {
-    byAlias.set(alias.toLowerCase(), chain);
-  }
-  if (chain.chainId !== undefined) {
-    byAlias.set(String(chain.chainId), chain);
-  }
+export function getRegistrySource(): "bundled" | "remote" {
+  return registrySource;
+}
+
+export async function initRegistry(): Promise<void> {
+  if (initPromise) return initPromise;
+
+  initPromise = (async () => {
+    try {
+      const remote = await loadRemoteRegistry();
+      applyIndexes(remote);
+      registrySource = "remote";
+    } catch (err) {
+      applyIndexes(loadBundledRegistry());
+      registrySource = "bundled";
+      console.error(
+        "[pocket-client] Remote registry unavailable, using bundled fallback:",
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+
+    void runLivenessProbes(registry, updateChainStatus);
+  })();
+
+  return initPromise;
 }
 
 export function listChains(): ChainInfo[] {

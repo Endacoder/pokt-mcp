@@ -16,6 +16,7 @@ import {
   wantsChainId,
   wantsSend,
 } from "../patterns.js";
+import { chainIdIntent } from "../chain-metadata.js";
 
 type TemplateMatcher = (query: string, chain: string) => RpcIntent | null;
 
@@ -79,7 +80,7 @@ const templates: TemplateMatcher[] = [
   },
   (query, chain) => {
     if (!wantsChainId(query)) return null;
-    return intent(chain, "eth_chainId", [], `Get chain ID for ${chain}`);
+    return chainIdIntent(chain);
   },
   (query, chain) => {
     const receiptMatch = query.match(/receipt\s+(0x[a-fA-F0-9]{64})/i);

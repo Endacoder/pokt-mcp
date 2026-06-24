@@ -1,5 +1,5 @@
-import { listChains, resolveChain } from "@pokt-mcp/pocket-client";
 import type { SessionContext } from "@pokt-mcp/shared";
+import { listChains, resolveChain } from "@pokt-mcp/pocket-client";
 
 export const ADDRESS_PATTERN = /(0x[a-fA-F0-9]{40}|[a-zA-Z0-9-]+\.eth)/;
 export const TX_HASH_PATTERN = /(0x[a-fA-F0-9]{64})/;
@@ -32,8 +32,29 @@ export function resolveAddress(query: string, context?: SessionContext): string 
   return context?.connectedAddress ?? context?.lastBalance?.address ?? null;
 }
 
+/** Use the chain from a recent send when the user pastes that transaction hash. */
+export function resolveChainFromSessionTx(query: string, context?: SessionContext): string | undefined {
+  const hash = extractTxHash(query);
+  const lastHash = context?.lastSendTx?.txHash;
+  if (!hash || !lastHash) return undefined;
+  if (hash.toLowerCase() !== lastHash.toLowerCase()) return undefined;
+  return context?.lastSendTx?.chain;
+}
+
+/** Match when the user pastes only (or mostly) a hash from this session's last send. */
+export function isSessionTxHashQuery(query: string, context?: SessionContext): boolean {
+  const hash = extractTxHash(query.trim());
+  if (!hash || !context?.lastSendTx?.txHash) return false;
+  if (hash.toLowerCase() !== context.lastSendTx.txHash.toLowerCase()) return false;
+  const remainder = query.trim().replace(new RegExp(hash, "i"), "").trim();
+  return remainder.length === 0 || /^(tx|transaction|hash|status|check|did|was)?\s*$/i.test(remainder);
+}
+
 /** Match chain slugs/aliases mentioned anywhere in the query. */
 export function inferChain(query: string, context?: SessionContext): string {
+  const fromSessionTx = resolveChainFromSessionTx(query, context);
+  if (fromSessionTx) return fromSessionTx;
+
   const normalized = normalizeQuery(query);
 
   const aliases: Array<{ key: string; slug: string }> = [];
@@ -113,30 +134,65 @@ export function wantsBalance(query: string): boolean {
   return (
     /\bbalances?\b/.test(q) ||
     /\bhow\s+much\b.*\b(hold|have|own)\b/.test(q) ||
-    /\b(holdings|funds|wallet)\b/.test(q) ||
-    /\baccount\s+balance\b/.test(q)
+    /\b(holdings|funds|portfolio|assets)\b/.test(q) ||
+    /\baccount\s+balance\b/.test(q) ||
+    /\bwhat(?:'s| is)\s+(?:in\s+)?my\s+wallet\b/.test(q) ||
+    /\bhow\s+much\s+(?:do\s+i\s+have|eth|usdc|usdt)\b/.test(q)
+  );
+}
+
+export function wantsMyPortfolio(query: string): boolean {
+  const q = normalizeQuery(query);
+  return (
+    /\bmy\b.*\bportfolio\b/.test(q) ||
+    /\bportfolio\b.*\bmy\b/.test(q) ||
+    /\b(show|bring up|display|view|see|open|pull up|load)\b.*\b(portfolio|holdings|assets)\b/.test(q) ||
+    /\b(show|bring up|display|view|see|open|pull up|load)\b.*\bmy\b.*\b(portfolio|holdings|assets)\b/.test(q)
   );
 }
 
 export function wantsMyWallet(query: string): boolean {
   const q = normalizeQuery(query);
   return (
-    /\bmy\b.*\b(wallet|balances?|account|funds|holdings)\b/.test(q) ||
+    wantsMyPortfolio(query) ||
+    /\bmy\b.*\b(wallet|balances?|account|funds|holdings|portfolio|assets)\b/.test(q) ||
     /\bmy balances?\b/.test(q) ||
     /\bconnected wallet\b/.test(q) ||
-    /\bwhat(?:'s| is)\s+my\b.*\b(balances?|wallet)\b/.test(q)
+    /\bwhat(?:'s| is)\s+my\b.*\b(balances?|wallet|portfolio|holdings)\b/.test(q)
   );
 }
 
 export function wantsMultiChainWalletBalance(query: string): boolean {
   const q = normalizeQuery(query);
-  if (!wantsMyWallet(query) || !wantsBalance(query)) return false;
+  if (!isWalletBalanceQuery(query)) return false;
+  if (wantsMyPortfolio(query) && !portfolioMentionsExplicitChain(query)) return true;
   return (
     /\b(across|all|every)\s+chains?\b/.test(q) ||
     /\bon\s+all\s+(networks|blockchains)\b/.test(q) ||
     /\bevery\s+(network|blockchain)\b/.test(q)
   );
 }
+
+function portfolioMentionsExplicitChain(query: string): boolean {
+  const normalized = normalizeQuery(query);
+  for (const chain of listChains()) {
+    const keys = [chain.slug.toLowerCase(), ...(chain.aliases ?? []).map((a) => a.toLowerCase())];
+    if (chain.name) keys.push(chain.name.toLowerCase());
+    for (const key of keys) {
+      if (key.length < 2) continue;
+      const pattern = new RegExp(`\\b${key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i");
+      if (pattern.test(normalized)) return true;
+    }
+  }
+  return false;
+}
+
+function isWalletBalanceQuery(query: string): boolean {
+  if (wantsMyPortfolio(query)) return true;
+  return wantsMyWallet(query) && wantsBalance(query);
+}
+
+export { isWalletBalanceQuery };
 
 export function wantsChainId(query: string): boolean {
   const q = normalizeQuery(query);
@@ -207,11 +263,23 @@ export function wantsSolanaBalance(query: string): boolean {
 }
 
 export function wantsSend(query: string): { amount: number; to: string } | null {
-  const match = query.match(
-    /(?:send|transfer|pay)\s+([\d.]+)\s*(?:eth|matic|avax|bnb|bera|xdai|ftm|native|tokens?)?\s*(?:to\s+)?(0x[a-fA-F0-9]{40})/i,
+  const nativeMatch = query.match(
+    /(?:send|transfer|pay)\s+([\d.]+)\s*(?:eth|matic|avax|bnb|bera|xdai|ftm|native)\s+(?:to\s+)?(0x[a-fA-F0-9]{40})/i,
   );
-  if (!match) return null;
-  return { amount: parseFloat(match[1]), to: match[2] };
+  if (nativeMatch) {
+    return { amount: parseFloat(nativeMatch[1]), to: nativeMatch[2] };
+  }
+  const bareMatch = query.match(
+    /(?:send|transfer|pay)\s+([\d.]+)\s*(?:to\s+)?(0x[a-fA-F0-9]{40})/i,
+  );
+  if (!bareMatch) return null;
+  const between = query
+    .slice(bareMatch.index ?? 0, bareMatch.index! + bareMatch[0].length)
+    .replace(/(?:send|transfer|pay)\s+[\d.]+\s*/i, "")
+    .replace(/(?:to\s+)?0x[a-fA-F0-9]{40}$/i, "")
+    .trim();
+  if (between && !/^(native|token?s?)$/i.test(between)) return null;
+  return { amount: parseFloat(bareMatch[1]), to: bareMatch[2] };
 }
 
 export function intent(

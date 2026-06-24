@@ -3,7 +3,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getAddress } from "viem";
 import { syncWalletSession } from "../lib/wallet-session";
-import { peekConnectedWallet } from "../lib/wallet-connect";
+import { restoreBoundWalletSession } from "../lib/wallet-connect";
+import {
+  getBoundConnectedAddress,
+  resolveWalletProvider,
+  setBoundConnectedAddress,
+  clearWalletBinding,
+} from "../lib/wallet-provider";
 import { AdvancedRpcPanel } from "../components/AdvancedRpcPanel";
 import { ChatInput, type ChatInputHandle } from "../components/ChatInput";
 import { ChatMessage } from "../components/ChatMessage";
@@ -24,7 +30,6 @@ import { TxConfirmModal } from "../components/TxConfirmModal";
 import { WalletButton } from "../components/WalletButton";
 import { WalletChainBadge } from "../components/WalletChainBadge";
 import { getApiUrl } from "../lib/api-url";
-import { isThinkingEnabled } from "../lib/feature-flags";
 import type { SwapFlowState, SwapPhase } from "../lib/swap-status";
 import type { SwapQuoteDisplay } from "../lib/swap-api";
 import { toDisplayString } from "../lib/format";
@@ -202,40 +207,38 @@ export default function HomePage() {
       });
   }, []);
 
-  const applyWalletFromProvider = useCallback(
-    (next: string | undefined) => {
-      if (!next) {
-        setPendingSwap(null);
-        setSwapFlow(null);
-        setWalletAddress(undefined);
-        return;
-      }
-      setWalletAddress((prev) => {
-        if (prev && getAddress(prev) !== getAddress(next)) {
-          setPendingSwap(null);
-          setSwapFlow(null);
-        }
-        return next;
-      });
-      void syncWalletSession(API_URL, next, chain).catch((err) =>
-        console.error("Wallet session sync failed:", err),
-      );
-    },
-    [chain],
-  );
-
-  // Keep app wallet + chain in sync when the user switches account or network in MetaMask.
+  // MetaMask account switches must not change the connected wallet shown in the header.
   useEffect(() => {
-    const provider = window.ethereum;
+    const provider = resolveWalletProvider();
     if (!provider?.on) return;
 
     const onAccountsChanged = (...args: unknown[]) => {
       const accounts = args[0] as string[] | undefined;
-      const next = accounts?.[0]?.trim();
-      if (next && /^0x[a-fA-F0-9]{40}$/.test(next)) {
-        applyWalletFromProvider(next);
-      } else {
-        applyWalletFromProvider(undefined);
+      const permitted = (accounts ?? [])
+        .map((a) => a?.trim())
+        .filter((a): a is string => Boolean(a && /^0x[a-fA-F0-9]{40}$/.test(a)))
+        .map((a) => getAddress(a));
+      const bound = getBoundConnectedAddress();
+
+      if (permitted.length === 0) {
+        setPendingSwap(null);
+        setSwapFlow(null);
+        setWalletAddress(undefined);
+        clearWalletBinding();
+        return;
+      }
+
+      if (bound && !permitted.includes(getAddress(bound))) {
+        setPendingSwap(null);
+        setSwapFlow(null);
+        setWalletAddress(undefined);
+        clearWalletBinding();
+        return;
+      }
+
+      if (bound && permitted[0] !== getAddress(bound)) {
+        setPendingSwap(null);
+        setSwapFlow(null);
       }
     };
 
@@ -255,33 +258,33 @@ export default function HomePage() {
       provider.removeListener?.("accountsChanged", onAccountsChanged);
       provider.removeListener?.("chainChanged", onChainChanged);
     };
-  }, [chains, chain, applyWalletFromProvider]);
+  }, [chains, chain, walletAddress]);
 
   function handleWalletConnected(address: string, _mode: unknown, chainSlug: string, chainId: number) {
+    setBoundConnectedAddress(address);
     setWalletAddress(address);
     setWalletChainId(chainId);
     setChain(chainSlug);
+    void syncWalletSession(API_URL, address, chainSlug).catch((err) =>
+      console.error("Wallet session sync failed:", err),
+    );
   }
 
-  // On load / tab focus, sync header wallet with MetaMask's active account (eth_accounts[0]).
-  useEffect(() => {
-    if (!hydrated) return;
-    void peekConnectedWallet().then((addr) => {
-      if (addr) applyWalletFromProvider(addr);
-    });
-  }, [hydrated, applyWalletFromProvider]);
+  function handleWalletDisconnected() {
+    setPendingSwap(null);
+    setSwapFlow(null);
+    setWalletAddress(undefined);
+    setWalletChainId(undefined);
+    clearWalletBinding();
+  }
 
+  // Restore bound wallet after reload — do not adopt MetaMask's currently selected account.
   useEffect(() => {
     if (!hydrated) return;
-    const onFocus = () => {
-      void peekConnectedWallet().then((addr) => {
-        if (addr) applyWalletFromProvider(addr);
-        else if (walletAddress) applyWalletFromProvider(undefined);
-      });
-    };
-    window.addEventListener("focus", onFocus);
-    return () => window.removeEventListener("focus", onFocus);
-  }, [hydrated, applyWalletFromProvider, walletAddress]);
+    void restoreBoundWalletSession().then((bound) => {
+      if (bound) setWalletAddress(bound);
+    });
+  }, [hydrated]);
 
   const persistConversation = useCallback(
     (msgs: Message[], chainSlug: string, convId: string | null) => {
@@ -372,7 +375,7 @@ export default function HomePage() {
       setMessages((m) => [
         ...m,
         { role: "user", content: userMessage },
-        { role: "assistant", content: "", streaming: true, toolCalls: [], thinkingLog: [] },
+        { role: "assistant", content: "", streaming: true, toolCalls: [], thinkingLog: [], reasoning: "" },
       ]);
       setLoading(true);
 
@@ -380,8 +383,10 @@ export default function HomePage() {
       abortRef.current = controller;
 
       let assistant = "";
+      let reasoning = "";
       let resultData: Record<string, unknown> | undefined;
       let errorMsg: string | undefined;
+      let awaitingWalletConfirm = false;
       const toolCalls: ToolCall[] = [];
       const thinkingLog: string[] = [];
 
@@ -453,13 +458,27 @@ export default function HomePage() {
         for await (const evt of parseChatSse(res)) {
           if (evt.event === "status") {
             const msg = (evt.data as { message?: unknown })?.message;
-            if (msg != null && isThinkingEnabled()) {
+            if (msg != null) {
               thinkingLog.push(toDisplayString(msg));
               patchAssistant({
                 content: sanitizeAssistantContent(assistant),
                 streaming: true,
                 toolCalls: [...toolCalls],
                 thinkingLog: [...thinkingLog],
+                reasoning,
+              });
+            }
+          } else if (evt.event === "reasoning") {
+            const raw = (evt.data as { text?: unknown })?.text;
+            const chunk = raw != null ? toDisplayString(raw) : "";
+            if (chunk) {
+              reasoning += chunk;
+              patchAssistant({
+                content: sanitizeAssistantContent(assistant),
+                streaming: true,
+                toolCalls: [...toolCalls],
+                thinkingLog: [...thinkingLog],
+                reasoning,
               });
             }
           } else if (evt.event === "token") {
@@ -472,6 +491,7 @@ export default function HomePage() {
                 streaming: true,
                 toolCalls: [...toolCalls],
                 thinkingLog: [...thinkingLog],
+                reasoning,
               });
             }
           } else if (evt.event === "tool") {
@@ -491,11 +511,20 @@ export default function HomePage() {
               streaming: true,
               toolCalls: [...toolCalls],
               thinkingLog: [...thinkingLog],
+              reasoning,
             });
           } else if (evt.event === "result") {
             const data = evt.data as Record<string, unknown>;
             if (data.requiresConfirmation) {
+              awaitingWalletConfirm = true;
               setPendingTx(data);
+              const intent = data.intent as { humanSummary?: string } | undefined;
+              assistant =
+                typeof data.message === "string"
+                  ? data.message
+                  : intent?.humanSummary
+                    ? `Confirm in wallet: ${intent.humanSummary}`
+                    : "Confirm the transaction in the dialog.";
             } else {
               resultData = data;
               if (toolCalls.length > 0) {
@@ -519,7 +548,7 @@ export default function HomePage() {
           }
         }
 
-        if (!assistant && !resultData && !errorMsg) {
+        if (!assistant && !resultData && !errorMsg && !awaitingWalletConfirm) {
           assistant = "Query processed.";
         }
       } catch (err) {
@@ -536,6 +565,7 @@ export default function HomePage() {
         streaming: false,
         toolCalls: [...toolCalls],
         thinkingLog: [...thinkingLog],
+        reasoning: reasoning || undefined,
       });
       setLoading(false);
     },
@@ -692,6 +722,7 @@ export default function HomePage() {
                 chains={chains}
                 connectedAddress={walletAddress}
                 onConnected={handleWalletConnected}
+                onDisconnected={handleWalletDisconnected}
               />
             </div>
           </div>
@@ -797,23 +828,29 @@ export default function HomePage() {
         <TxConfirmModal
           preview={pendingTx}
           apiUrl={API_URL}
-          chain={chain}
+          chain={(pendingTx.intent as { chain?: string } | undefined)?.chain ?? chain}
           walletAddress={walletAddress}
           onClose={() => setPendingTx(null)}
-          onSubmitted={({ hash, explorerUrl, to, valueNative }) => {
+          onSubmitted={({ hash, explorerUrl, to, valueNative, verified, pending }) => {
             const link = explorerUrl ? `\n${explorerUrl}` : "";
-            const chainInfo = chains.find((c) => c.slug === chain);
+            const chainSlug = (pendingTx.intent as { chain?: string } | undefined)?.chain ?? chain;
+            const chainInfo = chains.find((c) => c.slug === chainSlug);
             void recordSubmittedTransaction(API_URL, {
               txHash: hash,
-              chain,
+              chain: chainSlug,
               to,
               valueNative,
               nativeSymbol: chainInfo?.nativeSymbol,
               explorerUrl,
             }).catch(() => undefined);
+            const statusLine = verified
+              ? pending
+                ? "Transaction submitted and seen in mempool (pending confirmation):"
+                : "Transaction submitted and confirmed on-chain:"
+              : "Wallet returned a hash, but it is not visible on the network yet — it may have failed to broadcast. Hash:";
             setMessages((m) => [
               ...m,
-              { role: "assistant", content: `Transaction submitted: ${hash}${link}` },
+              { role: "assistant", content: `${statusLine} ${hash}${link}` },
             ]);
             setPendingTx(null);
           }}

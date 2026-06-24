@@ -75,6 +75,33 @@ Steps:
   );
 
   s.registerPrompt(
+    "explain-contract",
+    {
+      title: "Explain smart contract",
+      description: "Plain-English contract analysis via pocket_explain_contract",
+      argsSchema: {
+        chain: z.string(),
+        address: z.string(),
+      },
+    },
+    async ({ chain, address }) => ({
+      messages: [
+        {
+          role: "user",
+          content: {
+            type: "text",
+            text: `Explain smart contract ${address} on ${chain} in plain English.
+Steps:
+1. pocket_explain_contract with chain=${chain}, address=${address}
+2. Summarize: purpose, key functions, proxy status, verdict, and whether it looks suspicious
+3. Recommend whether it is safe to interact`,
+          },
+        },
+      ],
+    }),
+  );
+
+  s.registerPrompt(
     "build-contract-call",
     {
       title: "Build contract call",

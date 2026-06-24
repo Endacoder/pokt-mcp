@@ -14,12 +14,16 @@ async function main() {
     return;
   }
 
-  const server = createMcpApp() as McpServer;
+  const server = await createMcpApp() as McpServer;
   const transport = new StdioServerTransport();
   await server.connect(transport);
+  console.error("pokt-mcp stdio server started");
 }
 
 main().catch((err) => {
   console.error("pokt-mcp fatal:", err);
   process.exit(1);
 });
+
+process.on("SIGINT", () => process.exit(0));
+process.on("SIGTERM", () => process.exit(0));

@@ -2,11 +2,12 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ChainInfo } from "@pokt-mcp/pocket-client";
 import { listMethodsForProtocol } from "@pokt-mcp/pocket-client";
 import { z } from "zod";
-import { asToolServer, chainNotFound, textResult } from "./helpers.js";
+import { asToolServer, chainNotFound, READ_ONLY_ANNOTATION, textResult } from "./helpers.js";
 
 interface DiscoveryDeps {
   listChains: () => ChainInfo[];
   resolveChain: (alias: string) => ChainInfo | undefined;
+  getRegistrySource?: () => "bundled" | "remote";
 }
 
 export function registerDiscoveryTools(server: McpServer, deps: DiscoveryDeps) {
@@ -15,7 +16,8 @@ export function registerDiscoveryTools(server: McpServer, deps: DiscoveryDeps) {
     "pocket_list_chains",
     "List all blockchain networks available via Pocket Network portal",
     {},
-    async () => textResult({ chains: deps.listChains() }),
+    async () => textResult({ chains: deps.listChains(), source: deps.getRegistrySource?.() }),
+    READ_ONLY_ANNOTATION,
   );
 
   s.tool(
@@ -27,6 +29,7 @@ export function registerDiscoveryTools(server: McpServer, deps: DiscoveryDeps) {
       if (!info) return chainNotFound(chain);
       return textResult(info);
     },
+    READ_ONLY_ANNOTATION,
   );
 
   s.tool(
@@ -41,5 +44,6 @@ export function registerDiscoveryTools(server: McpServer, deps: DiscoveryDeps) {
 
       return textResult({ protocol: info.protocol, methods });
     },
+    READ_ONLY_ANNOTATION,
   );
 }

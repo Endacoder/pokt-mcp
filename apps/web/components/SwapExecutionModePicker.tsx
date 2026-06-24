@@ -14,11 +14,6 @@ const OPTIONS: Array<{ value: SwapExecutionMode; label: string; hint: string }> 
     label: "Gasless",
     hint: "CoW / solver pays gas",
   },
-  {
-    value: "gas",
-    label: "Gas",
-    hint: "Uniswap / LI.FI — you pay network fees",
-  },
 ];
 
 export function SwapExecutionModePicker({

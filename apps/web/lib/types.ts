@@ -18,6 +18,8 @@ export type Message =
       toolCalls?: ToolCall[];
       /** Live status lines streamed during processing. */
       thinkingLog?: string[];
+      /** Model reasoning / chain-of-thought streamed before the answer. */
+      reasoning?: string;
       /** Set when the user stops generation mid-stream. */
       interrupted?: boolean;
     };

@@ -1,6 +1,14 @@
 import { listChains, resolveChain } from "@pokt-mcp/pocket-client";
-import type { RpcIntent } from "@pokt-mcp/shared";
-import { wantsGasPrice } from "./patterns.js";
+import type { RpcIntent, SessionContext } from "@pokt-mcp/shared";
+import { isVagueFollowUp } from "./context.js";
+import {
+  COINGECKO_PERIOD_FIELD,
+  marketPeriodLabel,
+  parseMarketTimePeriod,
+  resolveMarketPeriod,
+  type MarketTimePeriod,
+} from "./pattern-lib/time-periods.js";
+import { wantsGasPrice, normalizeQuery } from "./patterns.js";
 
 /** CoinGecko coin id + display symbol for spot price lookups. */
 const SPOT_ASSETS: Record<string, { coingeckoId: string; symbol: string }> = {
@@ -27,6 +35,12 @@ const SPOT_ASSETS: Record<string, { coingeckoId: string; symbol: string }> = {
   dai: { coingeckoId: "dai", symbol: "DAI" },
   usdc: { coingeckoId: "usd-coin", symbol: "USDC" },
   usdt: { coingeckoId: "tether", symbol: "USDT" },
+  doge: { coingeckoId: "dogecoin", symbol: "DOGE" },
+  dogecoin: { coingeckoId: "dogecoin", symbol: "DOGE" },
+  link: { coingeckoId: "chainlink", symbol: "LINK" },
+  chainlink: { coingeckoId: "chainlink", symbol: "LINK" },
+  xrp: { coingeckoId: "ripple", symbol: "XRP" },
+  ripple: { coingeckoId: "ripple", symbol: "XRP" },
 };
 
 const VS_CURRENCIES: Record<string, { vs: string; symbol: string }> = {
@@ -59,13 +73,27 @@ const SPOT_PRICE_PATTERNS = [
   /\bhow much\s+(?:is\s+)?([a-z0-9.-]+)\s+(?:worth|cost)\b/i,
 ];
 
-export type PriceChange24hResult = {
+const PERFORMANCE_PATTERNS = [
+  /\bhow\s+(?:has|is)\s+([a-z0-9.-]+)\s+been\s+doing\b/i,
+  /\bhow\s+(?:has|is)\s+([a-z0-9.-]+)\s+doing\b/i,
+  /\bhow(?:'s| is)\s+([a-z0-9.-]+)\s+performing\b/i,
+  /\b([a-z0-9.-]+)\s+trend\b/i,
+  /\b([a-z0-9.-]+)\s+(?:up\s+or\s+down|pump|dump|rally|correction)\b/i,
+  /\b(?:is|has)\s+([a-z0-9.-]+)\s+(?:up|down|rising|falling|pumping|dumping)\b/i,
+];
+
+export type PriceChangePeriod = MarketTimePeriod;
+
+export type PriceChangeResult = {
   symbol: string;
   coingeckoId: string;
-  changePercent24h: number;
+  changePercent: number;
   currentPriceUsd: number;
-  period: "24h";
+  period: PriceChangePeriod;
 };
+
+/** @deprecated Use PriceChangeResult */
+export type PriceChange24hResult = PriceChangeResult & { changePercent24h: number; period: "24h" };
 
 export type SpotPriceResult = {
   asset: string;
@@ -130,6 +158,18 @@ function resolveSpotAsset(token: string): { coingeckoId: string; symbol: string 
   return null;
 }
 
+/** Find the first known market asset mentioned in free text (longest alias wins). */
+export function findSpotAssetInQuery(query: string): { coingeckoId: string; symbol: string } | null {
+  const q = normalizeQuery(query);
+  for (const { alias, asset } of buildAssetIndex()) {
+    const escaped = alias.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    if (new RegExp(`\\b${escaped}\\b`, "i").test(q)) return asset;
+  }
+  return null;
+}
+
+export { resolveSpotAsset };
+
 const COINGECKO_FALLBACK_IDS: Record<string, string[]> = {
   "polygon-ecosystem-token": ["matic-network"],
   "matic-network": ["polygon-ecosystem-token"],
@@ -140,9 +180,114 @@ function normalizeVsCurrency(vsCurrency: string): string {
   return VS_CURRENCY_ALIASES[key] ?? key;
 }
 
+function extractFollowUpPart(query: string): string {
+  const match = query.match(/Follow-up:\s*(.+?)(?:\s*\|\s*Context:|$)/i);
+  return match?.[1]?.trim() ?? query;
+}
+
+function periodFromResolution(
+  resolution: import("./pattern-lib/time-periods.js").MarketPeriodResolution | null,
+): PriceChangePeriod | null {
+  if (!resolution || resolution === "unmapped") return null;
+  return resolution;
+}
+
+export function parsePriceChangePeriodFromContext(
+  query: string,
+  expandedQuery?: string,
+): PriceChangePeriod | null {
+  const fromQuery = periodFromResolution(resolveMarketPeriod(query));
+  if (fromQuery) return fromQuery;
+  if (!expandedQuery || expandedQuery === query) return null;
+  return periodFromResolution(resolveMarketPeriod(extractFollowUpPart(expandedQuery)));
+}
+
+/** @deprecated Use parsePriceChangePeriodFromContext when expanded query may include assistant context. */
+export function parsePriceChangePeriod(query: string): PriceChangePeriod | null {
+  return periodFromResolution(resolveMarketPeriod(query));
+}
+
+function hasUnmappedMarketDuration(query: string): boolean {
+  return resolveMarketPeriod(query) === "unmapped";
+}
+
+export function isUnmappedMarketDurationFollowUp(query: string, expandedQuery?: string): boolean {
+  if (hasUnmappedMarketDuration(query)) return true;
+  if (expandedQuery && expandedQuery !== query) {
+    return hasUnmappedMarketDuration(extractFollowUpPart(expandedQuery));
+  }
+  return false;
+}
+
+export function formatUnsupportedMarketPeriodMessage(phrase: string, symbol: string): string {
+  return [
+    `CoinGecko does not provide a ${phrase.trim()} price change for ${symbol}.`,
+    "Supported performance periods: 24h, 7d, 14d, 30d, and 1y.",
+    "Try e.g. “in 7 days”, “in 24 hours”, or “last month”.",
+  ].join("\n");
+}
+
+/** Vague market follow-up with a duration CoinGecko does not support (e.g. “in 3 days”). */
+export function matchUnsupportedMarketPeriodQuery(
+  query: string,
+  expandedQuery?: string,
+  context?: SessionContext,
+): RpcIntent | null {
+  if (!isUnmappedMarketDurationFollowUp(query, expandedQuery)) return null;
+  if (!context?.lastMarketQuery && !isVagueFollowUp(query)) return null;
+
+  const symbol = context?.lastMarketQuery?.symbol ?? "the asset";
+  const phrase = extractFollowUpPart(expandedQuery ?? query);
+
+  return {
+    action: "read",
+    chain: "eth",
+    method: "__unsupported_market_period__",
+    params: [phrase, symbol],
+    humanSummary: `Explain unsupported market period for ${symbol}`,
+    riskLevel: "none",
+  };
+}
+
+function periodLabel(period: PriceChangePeriod): string {
+  return marketPeriodLabel(period);
+}
+
+function buildPriceChangeIntent(
+  chain: string,
+  coingeckoId: string,
+  symbol: string,
+  period: PriceChangePeriod,
+): RpcIntent {
+  return {
+    action: "read",
+    chain,
+    method: "__price_change__",
+    params: [coingeckoId, symbol, period],
+    humanSummary: `Get ${periodLabel(period)} price change for ${symbol}`,
+    riskLevel: "none",
+  };
+}
+
 export function isPriceChangeQuery(query: string): boolean {
   const q = normalize(query);
-  if (!/\bchange\b/.test(q) && !/\b(?:move|gain|loss|drop|rise)\b/.test(q)) return false;
+  const followUpPart = extractFollowUpPart(query);
+  if (hasUnmappedMarketDuration(query) || hasUnmappedMarketDuration(followUpPart)) {
+    return false;
+  }
+  if (parsePriceChangePeriod(query)) {
+    if (/\bchange\b/.test(q) || /\b(?:move|gain|loss|drop|rise|doing)\b/.test(q)) return true;
+    if (PERFORMANCE_PATTERNS.some((p) => p.test(query))) return true;
+    if (isVagueFollowUp(query)) return true;
+    for (const { alias } of buildAssetIndex()) {
+      const pattern = new RegExp(`\\b${escapeRegExp(alias)}\\b`, "i");
+      if (pattern.test(query)) return true;
+    }
+  }
+  if (PERFORMANCE_PATTERNS.some((p) => p.test(query))) return true;
+  if (!/\bchange\b/.test(q) && !/\b(?:move|gain|loss|drop|rise|trend|performing|pump|dump|rally|correction)\b/.test(q)) {
+    return false;
+  }
   return (
     /\b24\s*h(?:rs?|ours?)?\b/.test(q) ||
     /\b24h\b/.test(q) ||
@@ -153,6 +298,12 @@ export function isPriceChangeQuery(query: string): boolean {
 }
 
 function extractPriceChangeAsset(query: string): string | null {
+  for (const pattern of PERFORMANCE_PATTERNS) {
+    const match = query.match(pattern);
+    const token = match?.[1]?.toLowerCase();
+    if (token && resolveSpotAsset(token)) return token;
+  }
+
   for (const pattern of PRICE_CHANGE_PATTERNS) {
     const match = query.match(pattern);
     const token = match?.[1]?.toLowerCase();
@@ -169,7 +320,67 @@ function extractPriceChangeAsset(query: string): string | null {
   return null;
 }
 
+function extractAssetMention(query: string): string | null {
+  for (const { alias } of buildAssetIndex()) {
+    const pattern = new RegExp(`\\b${escapeRegExp(alias)}\\b`, "i");
+    if (pattern.test(query)) return alias;
+  }
+  return null;
+}
+
+function extractCrossAssetFromFollowUp(query: string, expandedQuery?: string): string | null {
+  if (!isVagueFollowUp(query)) return null;
+  const followUpPart = extractFollowUpPart(expandedQuery ?? query);
+  return extractAssetMention(followUpPart);
+}
+
+export function matchPriceChangeFollowUp(
+  query: string,
+  chain: string,
+  context?: SessionContext,
+  expandedQuery?: string,
+): RpcIntent | null {
+  const last = context?.lastMarketQuery;
+  if (!last) return null;
+
+  const followUpPart = extractFollowUpPart(expandedQuery ?? query);
+  if (hasUnmappedMarketDuration(query) || hasUnmappedMarketDuration(followUpPart)) {
+    return null;
+  }
+
+  const period =
+    parsePriceChangePeriodFromContext(query, expandedQuery) ??
+    parsePriceChangePeriod(query);
+  const vague = isVagueFollowUp(query);
+
+  const crossAssetToken = extractCrossAssetFromFollowUp(query, expandedQuery);
+  if (crossAssetToken) {
+    const asset = resolveSpotAsset(crossAssetToken);
+    if (asset) {
+      const effectivePeriod = period ?? last.period ?? "24h";
+      return buildPriceChangeIntent(chain, asset.coingeckoId, asset.symbol, effectivePeriod);
+    }
+  }
+
+  if (!vague && !period) return null;
+
+  const effectivePeriod = period ?? (vague ? last.period ?? "24h" : last.period ?? "24h");
+  return buildPriceChangeIntent(chain, last.coingeckoId, last.symbol, effectivePeriod);
+}
+
 export function matchPriceChangeQuery(query: string, chain: string): RpcIntent | null {
+  const performanceMatch = PERFORMANCE_PATTERNS.find((p) => p.test(query));
+  if (performanceMatch) {
+    const match = query.match(performanceMatch);
+    const token = match?.[1]?.toLowerCase();
+    const asset = token ? resolveSpotAsset(token) : null;
+    if (asset) {
+      const followUpPart = extractFollowUpPart(query);
+      const period = parsePriceChangePeriod(followUpPart) ?? "24h";
+      return buildPriceChangeIntent(chain, asset.coingeckoId, asset.symbol, period);
+    }
+  }
+
   if (!isPriceChangeQuery(query)) return null;
 
   const assetToken = extractPriceChangeAsset(query);
@@ -178,14 +389,14 @@ export function matchPriceChangeQuery(query: string, chain: string): RpcIntent |
   const asset = resolveSpotAsset(assetToken);
   if (!asset) return null;
 
-  return {
-    action: "read",
-    chain,
-    method: "__price_change_24h__",
-    params: [asset.coingeckoId, asset.symbol],
-    humanSummary: `Get 24h price change for ${asset.symbol}`,
-    riskLevel: "none",
-  };
+  const followUpPart = extractFollowUpPart(query);
+  if (hasUnmappedMarketDuration(followUpPart)) return null;
+  let period = parsePriceChangePeriod(followUpPart);
+  if (!period) {
+    if (isVagueFollowUp(followUpPart)) return null;
+    period = "24h";
+  }
+  return buildPriceChangeIntent(chain, asset.coingeckoId, asset.symbol, period);
 }
 
 function parseVsCurrency(raw?: string): { vs: string; symbol: string } {
@@ -291,12 +502,16 @@ export async function fetchSpotPrice(
   throw new Error(lastError ?? `No ${displayVsSymbol} price returned for ${symbol}`);
 }
 
-export async function fetchPriceChange24h(
+const COINGECKO_PERIOD_FIELDS: Record<PriceChangePeriod, string> = COINGECKO_PERIOD_FIELD;
+
+export async function fetchPriceChange(
   coingeckoId: string,
   symbol: string,
-): Promise<PriceChange24hResult> {
+  period: PriceChangePeriod = "24h",
+): Promise<PriceChangeResult> {
   const idsToTry = [coingeckoId, ...(COINGECKO_FALLBACK_IDS[coingeckoId] ?? [])];
   let lastError: string | undefined;
+  const field = COINGECKO_PERIOD_FIELDS[period];
 
   for (const id of idsToTry) {
     try {
@@ -310,39 +525,59 @@ export async function fetchPriceChange24h(
       }
 
       const json = (await res.json()) as {
-        market_data?: {
-          price_change_percentage_24h?: number;
+        market_data?: Record<string, number | { usd?: number } | undefined> & {
           current_price?: { usd?: number };
+          price_change_percentage_24h?: number;
+          price_change_percentage_7d?: number;
+          price_change_percentage_30d?: number;
         };
       };
 
-      const changePercent24h = json.market_data?.price_change_percentage_24h;
-      const currentPriceUsd = json.market_data?.current_price?.usd;
+      const market = json.market_data;
+      const changePercent = market?.[field as keyof typeof market] as number | undefined;
 
-      if (changePercent24h === undefined || currentPriceUsd === undefined) {
-        lastError = `No 24h change data returned for ${symbol}`;
+      const currentPriceUsd = market?.current_price?.usd;
+
+      if (changePercent === undefined || currentPriceUsd === undefined) {
+        lastError = `No ${periodLabel(period)} change data returned for ${symbol}`;
         continue;
       }
 
       return {
         symbol,
         coingeckoId: id,
-        changePercent24h,
+        changePercent,
         currentPriceUsd,
-        period: "24h",
+        period,
       };
     } catch (err) {
       lastError = err instanceof Error ? err.message : String(err);
     }
   }
 
-  throw new Error(lastError ?? `No 24h change data returned for ${symbol}`);
+  throw new Error(lastError ?? `No ${periodLabel(period)} change data returned for ${symbol}`);
+}
+
+export async function fetchPriceChange24h(
+  coingeckoId: string,
+  symbol: string,
+): Promise<PriceChange24hResult> {
+  const result = await fetchPriceChange(coingeckoId, symbol, "24h");
+  return {
+    ...result,
+    changePercent24h: result.changePercent,
+    period: "24h",
+  };
+}
+
+export function formatPriceChange(result: PriceChangeResult): string {
+  const sign = result.changePercent >= 0 ? "+" : "";
+  const price = formatSpotPrice(result.currentPriceUsd, "USD", "usd");
+  return `${result.symbol} ${periodLabel(result.period)} change: ${sign}${result.changePercent.toFixed(2)}% (now ${price})`;
 }
 
 export function formatPriceChange24h(result: PriceChange24hResult): string {
-  const sign = result.changePercent24h >= 0 ? "+" : "";
-  const price = formatSpotPrice(result.currentPriceUsd, "USD", "usd");
-  return `${result.symbol} 24h change: ${sign}${result.changePercent24h.toFixed(2)}% (now ${price})`;
+  return formatPriceChange(result);
 }
 
 export function formatSpotPrice(price: number, vsSymbol: string, vsCurrency: string): string {

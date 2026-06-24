@@ -269,7 +269,7 @@ describe("validateTypedDataForWallet", () => {
     expect(prepareTypedDataForWallet(payload).message).toEqual(payload.message);
   });
 
-  it("preserves Permit2 PermitSingle message without reshaping fields", () => {
+  it("preserves Permit2 PermitSingle quote values without reshaping fields", () => {
     const payload = {
       domain: {
         name: "Permit2",
@@ -302,7 +302,9 @@ describe("validateTypedDataForWallet", () => {
       },
     };
     expect(isPermit2PermitSinglePayload(payload)).toBe(true);
-    expect(prepareTypedDataForWallet(payload).message).toEqual(payload.message);
+    const prepared = prepareTypedDataForWallet(payload);
+    expect(prepared.message).toEqual(payload.message);
+    expect(prepared.domain.chainId).toBe(1);
   });
 
   it("preserves 1inch Fusion order message without reshaping uint fields", () => {

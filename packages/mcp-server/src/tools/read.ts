@@ -2,16 +2,29 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ChainInfo, PocketClient } from "@pokt-mcp/pocket-client";
 import { z } from "zod";
 import { getErc20TokenBalance, enrichTxLookupOutput } from "@pokt-mcp/nl-rpc";
-import { asToolServer, chainNotFound, textResult } from "./helpers.js";
+import { asToolServer, chainNotFound, READ_ONLY_ANNOTATION, textResult } from "./helpers.js";
 
 interface ReadToolDeps {
   pocket: PocketClient;
   resolveChain: (alias: string) => ChainInfo | undefined;
 }
 
+type ReadToolServer = ReturnType<typeof asToolServer>;
+
+function readTool(
+  s: ReadToolServer,
+  name: string,
+  description: string,
+  schema: Record<string, z.ZodTypeAny>,
+  handler: (args: any) => Promise<ReturnType<typeof textResult>>,
+) {
+  s.tool(name, description, schema, handler, READ_ONLY_ANNOTATION);
+}
+
 export function registerReadTools(server: McpServer, deps: ReadToolDeps) {
   const s = asToolServer(server);
-  s.tool(
+  readTool(
+    s,
     "pocket_get_balance",
     "Shortcut: get native balance when you have chain + address. Prefer pocket_query for natural language.",
     {
@@ -36,7 +49,8 @@ export function registerReadTools(server: McpServer, deps: ReadToolDeps) {
     },
   );
 
-  s.tool(
+  readTool(
+    s,
     "pocket_get_block_number",
     "Shortcut: get latest block number. Prefer pocket_query for natural language.",
     { chain: z.string() },
@@ -53,7 +67,8 @@ export function registerReadTools(server: McpServer, deps: ReadToolDeps) {
     },
   );
 
-  s.tool(
+  readTool(
+    s,
     "pocket_get_transaction",
     "Get transaction details by hash",
     { chain: z.string(), hash: z.string() },
@@ -71,7 +86,8 @@ export function registerReadTools(server: McpServer, deps: ReadToolDeps) {
     },
   );
 
-  s.tool(
+  readTool(
+    s,
     "pocket_get_receipt",
     "Get transaction receipt by hash",
     { chain: z.string(), hash: z.string() },
@@ -89,7 +105,8 @@ export function registerReadTools(server: McpServer, deps: ReadToolDeps) {
     },
   );
 
-  s.tool(
+  readTool(
+    s,
     "pocket_call_contract",
     "Execute a read-only contract call (eth_call)",
     {
@@ -111,7 +128,8 @@ export function registerReadTools(server: McpServer, deps: ReadToolDeps) {
     },
   );
 
-  s.tool(
+  readTool(
+    s,
     "pocket_get_logs",
     "Fetch event logs (eth_getLogs)",
     {
@@ -134,7 +152,8 @@ export function registerReadTools(server: McpServer, deps: ReadToolDeps) {
     },
   );
 
-  s.tool(
+  readTool(
+    s,
     "pocket_estimate_gas",
     "Estimate gas for a transaction",
     {
@@ -159,7 +178,8 @@ export function registerReadTools(server: McpServer, deps: ReadToolDeps) {
   );
 
 
-  s.tool(
+  readTool(
+    s,
     "pocket_get_nonce",
     "Get transaction count (nonce) for an address. Prefer pocket_query for natural language.",
     {
@@ -181,7 +201,8 @@ export function registerReadTools(server: McpServer, deps: ReadToolDeps) {
     },
   );
 
-  s.tool(
+  readTool(
+    s,
     "pocket_get_token_balance",
     "Get ERC-20 token balance for an address. Prefer pocket_query for natural language.",
     {
@@ -203,7 +224,8 @@ export function registerReadTools(server: McpServer, deps: ReadToolDeps) {
     },
   );
 
-  s.tool(
+  readTool(
+    s,
     "pocket_wait_for_receipt",
     "Poll until a transaction is confirmed or timeout",
     {

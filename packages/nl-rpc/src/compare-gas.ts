@@ -16,8 +16,8 @@ export type CompareGasResult = {
   cheaperChainName?: string;
 };
 
-/** Popular Pocket mainnets for open-ended “across chains” gas comparisons. */
-export const DEFAULT_COMPARE_GAS_CHAINS = ["eth", "base", "arb-one", "poly", "opt", "avax"];
+/** Popular Pocket mainnets for open-ended “across chains” gas comparisons (EVM gwei-comparable). */
+export const DEFAULT_COMPARE_GAS_CHAINS = ["eth", "base", "arb-one", "opt", "avax", "linea"];
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -76,11 +76,11 @@ export function isCompareGasQuery(query: string): boolean {
 }
 
 export function resolveCompareGasChains(query: string): string[] {
+  if (!isCompareGasQuery(query)) return [];
   const explicit = extractCompareChains(query);
   if (explicit.length >= 2) return explicit;
-  if (!isCompareGasQuery(query)) return [];
   if (explicit.length === 1) return [];
-  if (wantsMultiChainGasCompare(query) || explicit.length === 0) {
+  if (wantsMultiChainGasCompare(query)) {
     return DEFAULT_COMPARE_GAS_CHAINS.filter((slug) => resolveChain(slug)?.protocol === "evm");
   }
   return [];
@@ -154,6 +154,11 @@ export function formatCompareGas(result: CompareGasResult): string {
     } else {
       lines.push("Gas prices are equal across compared chains.");
     }
+  }
+  if (result.chains.some((entry) => entry.chain === "poly" && entry.gwei > 50)) {
+    lines.push(
+      "Note: Polygon uses a higher gwei scale (often 30–500+ gwei); raw gwei is not directly comparable to Ethereum L1/L2.",
+    );
   }
   return `\n${lines.join("\n")}`;
 }

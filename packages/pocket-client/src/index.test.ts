@@ -16,6 +16,11 @@ describe("chain registry", () => {
     const eth = getChain("eth");
     expect(eth?.endpoint).toBe("https://eth.api.pocket.network");
   });
+
+  it("maps portal slugs that differ from internal chain slugs", () => {
+    expect(getChain("opt")?.endpoint).toBe("https://op.api.pocket.network");
+    expect(getChain("zksync")?.endpoint).toBe("https://zksync-era.api.pocket.network");
+  });
 });
 
 describe("pocket client integration", () => {

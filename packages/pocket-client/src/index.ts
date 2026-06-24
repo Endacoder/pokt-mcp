@@ -20,7 +20,8 @@ async function sleep(ms: number): Promise<void> {
   await new Promise((r) => setTimeout(r, ms));
 }
 
-import { getChain, listChains, resolveChain } from "./registry/index.js";
+import { getChain, initRegistry, listChains, resolveChain } from "./registry/index.js";
+import { preCheckRpc, postCheckResponse } from "./safety.js";
 
 export function createChainRegistry(): ChainRegistry {
   return { list: listChains, get: getChain, resolve: resolveChain };
@@ -76,8 +77,9 @@ export function createPocketClient(options: PocketClientOptions = {}): PocketCli
         });
         clearTimeout(timer);
 
-        if (res.status === 429 || res.status >= 500) {
-          throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+        if (!res.ok) {
+          const body = (await res.text()).trim();
+          throw new Error(body ? `HTTP ${res.status}: ${body}` : `HTTP ${res.status}`);
         }
 
         const json = (await res.json()) as RpcResult<T> | RpcResult<T>[];
@@ -133,6 +135,11 @@ export function createPocketClient(options: PocketClientOptions = {}): PocketCli
         );
       }
 
+      const safety = preCheckRpc(method, params);
+      if (!safety.allowed) {
+        throw new Error(`POLICY_DENIED: ${safety.reason}`);
+      }
+
       const key = cacheKey(chain, method, params);
       if (CACHEABLE.has(method)) {
         const hit = cache.get(key);
@@ -144,12 +151,21 @@ export function createPocketClient(options: PocketClientOptions = {}): PocketCli
       const endpoint = resolveEndpoint(chain);
       const body = { jsonrpc: "2.0", method, params, id: 1 };
       const resp = await post<T>(endpoint, body, chain, method);
+      const checked = postCheckResponse(resp.result);
+
+      const finalResp: RpcResponse<T> = {
+        result: checked.result as T,
+        meta: {
+          ...resp.meta,
+          ...(checked.truncated ? { truncated: true, warning: checked.warning } : {}),
+        },
+      };
 
       if (CACHEABLE.has(method)) {
-        cache.set(key, { expires: Date.now() + cacheTtlMs, value: resp as RpcResponse<unknown> });
+        cache.set(key, { expires: Date.now() + cacheTtlMs, value: finalResp as RpcResponse<unknown> });
       }
 
-      return resp;
+      return finalResp;
     },
 
     async broadcast<T>(chain: string, rawTransaction: string) {
@@ -170,6 +186,10 @@ export function createPocketClient(options: PocketClientOptions = {}): PocketCli
         }
         if (isWriteMethod(call.method)) {
           throw new Error(`POLICY_DENIED: write methods not allowed in batch`);
+        }
+        const safety = preCheckRpc(call.method, call.params ?? []);
+        if (!safety.allowed) {
+          throw new Error(`POLICY_DENIED: ${safety.reason}`);
         }
       }
 
@@ -197,7 +217,14 @@ function parseFallbackEnv(): Record<string, string> {
 }
 
 export * from "./types.js";
-export { listChains, getChain, resolveChain } from "./registry/index.js";
+export { listChains, getChain, resolveChain, initRegistry, getRegistrySource } from "./registry/index.js";
+export {
+  preCheckRpc,
+  postCheckResponse,
+  assertCompareChainCount,
+  MAX_BLOCK_RANGE,
+  MAX_COMPARE_CHAINS,
+} from "./safety.js";
 export {
   EVM_METHODS,
   SOLANA_METHODS,

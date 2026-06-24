@@ -7,6 +7,9 @@ import { matchTemporalQuery } from "./temporal.js";
 import { inferChain, matchTemplate } from "./templates/index.js";
 import { isWalletBalanceQuery } from "./wallet-balance.js";
 import { isCompareGasQuery } from "./compare-gas.js";
+import { isGasFiatQuery } from "./gas-fiat.js";
+import { isCompareBalancesQuery } from "./compare-balances.js";
+import { isCosmosBalanceQuery } from "./cosmos-balance.js";
 import { isPaymentFromMeQuery, isTxHistoryQuery } from "./tx-history.js";
 import { isContractCodeQuery } from "./patterns.js";
 import { isTransferEventQuery } from "./transfer-logs.js";
@@ -19,6 +22,9 @@ export function needsDynamicRouting(query: string, context?: SessionContext): bo
   if (isTxHistoryQuery(query)) return false;
   if (isPaymentFromMeQuery(query)) return false;
   if (isCompareGasQuery(query)) return false;
+  if (isGasFiatQuery(query)) return false;
+  if (isCompareBalancesQuery(query)) return false;
+  if (isCosmosBalanceQuery(query)) return false;
   if (isMarketAnalyticsQuery(query)) return false;
 
   const chain = inferChain(query, context);

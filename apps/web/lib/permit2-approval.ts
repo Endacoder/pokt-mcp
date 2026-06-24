@@ -156,11 +156,12 @@ function buildApproveTransaction(
   tokenAddress: Address,
   walletAddress: Address,
   chainId?: number,
+  amountAtomic?: bigint,
 ): Record<string, unknown> {
   const data = encodeFunctionData({
     abi: erc20Abi,
     functionName: "approve",
-    args: [PERMIT2_ADDRESS, maxUint256],
+    args: [PERMIT2_ADDRESS, amountAtomic ?? maxUint256],
   });
   const tx: Record<string, unknown> = {
     from: walletAddress,
@@ -213,7 +214,7 @@ export async function prepareApproveTransactionIfNeeded(
   }
   if (allowance != null && allowance >= required) return undefined;
 
-  return buildApproveTransaction(token, owner, ctx.chainId);
+  return buildApproveTransaction(token, owner, ctx.chainId, required);
 }
 
 /** Send ERC20 approve(Permit2, max) when allowance is below the swap amount. */

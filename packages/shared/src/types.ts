@@ -1,10 +1,14 @@
-export type ChainProtocol = "evm" | "solana" | "cosmos";
+export type ChainProtocol = "evm" | "solana" | "cosmos" | "sui" | "near" | "tron";
+export type ChainStatus = "active" | "degraded" | "inactive";
 export type RiskLevel = "none" | "low" | "high";
 export type RpcAction = "read" | "write";
 export type ConnectionType = "walletconnect" | "injected" | "local" | "none";
 
-/** Intent MCP swap execution routing passed to get_swap_quote. */
-export type SwapExecutionMode = "any" | "gasless" | "gas";
+/** User-selected swap routing passed to Intent MCP quote tools. */
+export type SwapExecutionMode = "any" | "gasless";
+
+/** Execution mode returned on a quote from Intent MCP. */
+export type QuoteExecutionMode = "any" | "gasless" | "gas";
 
 export type PoktErrorCode =
   | "CHAIN_NOT_FOUND"
@@ -21,9 +25,13 @@ export interface ChainInfo {
   nativeSymbol: string;
   protocol: ChainProtocol;
   endpoint: string;
+  /** Pocket portal subdomain when it differs from `slug` (e.g. Optimism uses `op`). */
+  portalSlug?: string;
   aliases: string[];
   blockExplorer?: string;
   testnet?: boolean;
+  network?: "mainnet" | "testnet";
+  status?: ChainStatus;
 }
 
 export interface RpcCall {
@@ -48,6 +56,8 @@ export interface RpcMeta {
   method: string;
   latencyMs: number;
   endpoint: string;
+  truncated?: boolean;
+  warning?: string;
 }
 
 export interface RpcResponse<T = unknown> {
@@ -102,6 +112,34 @@ export interface SessionContext {
   lastSwapIntent?: LastSwapIntent;
   /** Last submitted native transfer for status follow-ups ("did that send succeed?"). */
   lastSendTx?: LastSendTransaction;
+  /** Last spot price or price-change query for market follow-ups ("how about in a week?"). */
+  lastMarketQuery?: {
+    symbol: string;
+    coingeckoId: string;
+    kind: "priceChange" | "spotPrice";
+    period?: "24h" | "7d" | "14d" | "30d" | "1y";
+  };
+  /** Last ERC-20 transfer log query for follow-ups ("I've received tokens", "check balance"). */
+  lastTransferQuery?: LastTransferQuery;
+}
+
+export interface LastTransferQuery {
+  chain: string;
+  tokenSymbol: string;
+  walletAddress: string;
+  blockRange: number;
+  hadEmptyResult?: boolean;
+}
+
+/** Prior chat turn sent with each request for conversational context. */
+export interface ChatHistoryMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+/** Optional hooks while streaming from an LLM (reasoning models). */
+export interface LlmStreamCallbacks {
+  onReasoning?: (chunk: string) => void;
 }
 
 export interface LastSendTransaction {
@@ -198,6 +236,8 @@ export interface ChatRequest {
   message: string;
   chain?: string;
   sessionId: string;
+  /** Prior conversation turns for follow-up context (client sends, not persisted server-side). */
+  history?: ChatHistoryMessage[];
   /** Injected by API from wallet session when available */
   connectedAddress?: string;
   /** Swap quote routing preference from web UI */
@@ -216,6 +256,7 @@ export interface WalletTxPreviewRequest {
   to: string;
   value?: string;
   data?: string;
+  gasLimit?: string;
 }
 
 export interface WalletTxBroadcastRequest {

@@ -1,3 +1,4 @@
+import { applyGasSafetyBufferHex } from "@pokt-mcp/shared/gas-buffer";
 import { previewTransaction } from "./api";
 import { slugFromChainId } from "./chain-config";
 import { isWalletRpcHttpError, walletRpcErrorMessage } from "./permit2-approval";
@@ -56,7 +57,7 @@ export async function enrichTransactionForWallet(
   if (!chain || typeof tx.to !== "string") return tx;
 
   const gasLimitParam = (() => {
-    const hex = gasLimitFromTx(tx) ?? normalizeGasQuantity("300000");
+    const hex = gasLimitFromTx(tx);
     if (!hex) return undefined;
     return hex.startsWith("0x") ? BigInt(hex).toString() : hex;
   })();
@@ -70,7 +71,11 @@ export async function enrichTransactionForWallet(
     gasLimit: gasLimitParam,
   });
 
-  if (preview.error || !preview.transaction) return tx;
+  if (preview.error || !preview.transaction) {
+    const gas = gasLimitFromTx(tx);
+    if (gas) return { ...tx, gas: applyGasSafetyBufferHex(gas) };
+    return tx;
+  }
 
   const built = preview.transaction;
   return {

@@ -9,7 +9,7 @@ export type WalletTypedDataPayload = {
   primaryType: string;
 };
 
-const UINT_TYPES = new Set(["uint256", "uint128", "uint64", "uint32", "uint8"]);
+const UINT_TYPES = new Set(["uint256", "uint128", "uint64", "uint32", "uint8", "uint160", "uint48"]);
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 const ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
 
@@ -26,10 +26,10 @@ function checksumAddress(value: string): string {
 }
 
 function normalizeScalar(value: unknown, type: string): unknown {
+  if (type === "uint48" || type === "uint32" || type === "uint8") {
+    return typeof value === "number" ? value : Number(value);
+  }
   if (UINT_TYPES.has(type)) {
-    if (type === "uint32" || type === "uint8") {
-      return typeof value === "number" ? value : Number(value);
-    }
     return typeof value === "bigint" ? value.toString() : String(value);
   }
   if (type === "bool") return Boolean(value);
@@ -192,7 +192,14 @@ export function minimalTypedDataForWallet(payload: WalletTypedDataPayload): Wall
 }
 
 export function prepareTypedDataForWallet(payload: WalletTypedDataPayload): WalletTypedDataPayload {
-  if (isPrebuiltOrderPayload(payload) || isPermit2Payload(payload)) {
+  if (isPrebuiltOrderPayload(payload)) {
+    return minimalTypedDataForWallet(payload);
+  }
+  // PermitSingle — preserve quote values byte-for-byte (Intent MCP / relayer verification).
+  if (isPermit2PermitSinglePayload(payload)) {
+    return minimalTypedDataForWallet(payload);
+  }
+  if (isPermit2Payload(payload)) {
     return minimalTypedDataForWallet(payload);
   }
   return normalizeTypedDataForWallet(payload);

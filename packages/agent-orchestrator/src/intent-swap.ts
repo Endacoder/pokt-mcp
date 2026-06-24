@@ -1,6 +1,13 @@
 import { resolveChain } from "@pokt-mcp/pocket-client";
-import type { IntentMcpConfig, SessionContext, SwapExecutionMode } from "@pokt-mcp/shared";
-import { createIntentMcpSwapClient, type SanitizedQuote, type TokenHit } from "./intent-mcp-client.js";
+import type { IntentMcpConfig, QuoteExecutionMode, SessionContext, SwapExecutionMode } from "@pokt-mcp/shared";
+import { isUserPaidGasRoute } from "@pokt-mcp/shared";
+import {
+  createIntentMcpSwapClient,
+  type IntentMcpSwapClient,
+  type SanitizedQuote,
+  type TokenHit,
+} from "./intent-mcp-client.js";
+import { summarizeIntentMcpTransportError } from "./intent-mcp-transport.js";
 import type { AgentEvent } from "./types.js";
 
 export interface ParsedSwapQuery {
@@ -10,15 +17,32 @@ export interface ParsedSwapQuery {
   chainHint?: string;
 }
 
+/** Fix glued swap verbs and common token typos before parsing. */
+export function normalizeSwapQueryText(query: string): string {
+  let q = query.trim();
+  q = q.replace(/\b(swap|trade|exchange)(\d)/gi, "$1 $2");
+  q = q.replace(/\b(?:to|for|into)\s+wth\b/gi, (match) => match.replace(/wth/i, "weth"));
+  return q;
+}
+
+function normalizeSwapTokenSymbol(symbol: string): string {
+  switch (symbol.toLowerCase()) {
+    case "wth":
+      return "weth";
+    default:
+      return symbol;
+  }
+}
+
 export function parseSwapExecutionQuery(query: string): ParsedSwapQuery | null {
-  const m = query.trim().match(
-    /\b(?:swap|trade|exchange)\s+([\d.,]+)\s+([a-zA-Z0-9]+)\s+(?:for|to|into)\s+([a-zA-Z0-9]+)(?:\s+on\s+([\w-]+))?/i,
+  const m = normalizeSwapQueryText(query).match(
+    /\b(?:swap|trade|exchange)\s*([\d.,]+)\s+([a-zA-Z0-9]+)\s+(?:for|to|into)\s+([a-zA-Z0-9]+)(?:\s+on\s+([\w-]+))?/i,
   );
   if (!m) return null;
   return {
     amountHuman: m[1].replace(/,/g, ""),
-    tokenInSymbol: m[2],
-    tokenOutSymbol: m[3],
+    tokenInSymbol: normalizeSwapTokenSymbol(m[2]),
+    tokenOutSymbol: normalizeSwapTokenSymbol(m[3]),
     chainHint: m[4],
   };
 }
@@ -33,7 +57,7 @@ type SwapParsePartial = {
 function analyzePartialSwapQuery(query: string): SwapParsePartial | null {
   if (parseSwapExecutionQuery(query)) return null;
 
-  const q = query.trim();
+  const q = normalizeSwapQueryText(query);
 
   const withTokens = q.match(
     /\b(?:swap|trade|exchange)\s+(?:my\s+)?([a-zA-Z0-9]+)\s+(?:for|to|into)\s+([a-zA-Z0-9]+)(?:\s+on\s+([\w-]+))?/i,
@@ -97,10 +121,29 @@ export function formatSwapParseFailureMessage(
 
 /** Map user-facing symbols to Intent MCP search queries (wrapped/native variants). */
 export function resolveSwapExecutionMode(session: SessionContext): SwapExecutionMode {
-  return session.swapExecutionMode ?? "any";
+  const mode = session.swapExecutionMode ?? "any";
+  return mode === "gasless" ? "gasless" : "any";
 }
 
-export function executionModeLabel(mode: SwapExecutionMode): string {
+/** Ethereum mainnet 1inch Fusion gasless quotes fail at prepare (FEE_RECEIVER_REQUIRED). */
+export function effectiveSwapExecutionModeForQuote(
+  chainId: number,
+  executionMode: SwapExecutionMode,
+  amountHuman?: number,
+): { mode: SwapExecutionMode; downgradedFromGasless: boolean; likelyGasRoute?: boolean } {
+  if (chainId === 1 && executionMode === "gasless") {
+    if (amountHuman != null && amountHuman < 20) {
+      return { mode: "any", downgradedFromGasless: true, likelyGasRoute: true };
+    }
+    return { mode: "any", downgradedFromGasless: true };
+  }
+  if (chainId === 1 && executionMode === "any" && amountHuman != null && amountHuman < 20) {
+    return { mode: "any", downgradedFromGasless: false, likelyGasRoute: true };
+  }
+  return { mode: executionMode, downgradedFromGasless: false };
+}
+
+export function executionModeLabel(mode: SwapExecutionMode | QuoteExecutionMode): string {
   if (mode === "any") return "Best price (auto)";
   return mode === "gasless" ? "Gasless (solver pays gas)" : "Gas (you pay network fees)";
 }
@@ -109,11 +152,47 @@ export function resolveSwapTokenSearchQuery(symbol: string): string {
   switch (symbol.toLowerCase()) {
     case "eth":
       return "WETH";
+    case "wth":
+      return "WETH";
     case "pol":
     case "matic":
       return "WMATIC";
     default:
       return symbol;
+  }
+}
+
+export function isGaslessOnlyQuoteFailure(message: string): boolean {
+  return /no quotes available/i.test(message) && /no gasless routes/i.test(message);
+}
+
+/** Fetch a quote using the preferred Intent MCP tool for the execution mode. */
+export async function fetchQuoteForExecutionMode(
+  client: IntentMcpSwapClient,
+  quoteBody: Record<string, unknown>,
+  executionMode: SwapExecutionMode,
+): Promise<SanitizedQuote> {
+  const { executionMode: _omit, ...body } = quoteBody;
+  if (executionMode === "gasless") {
+    return client.getGaslessSwapQuote(body);
+  }
+  return client.getSwapQuote({ ...body, executionMode: "any" });
+}
+
+export async function fetchSwapQuoteWithFallback(
+  client: IntentMcpSwapClient,
+  quoteBody: Record<string, unknown>,
+  executionMode: SwapExecutionMode,
+): Promise<{ quote: SanitizedQuote; gaslessFallback: boolean }> {
+  try {
+    const quote = await fetchQuoteForExecutionMode(client, quoteBody, executionMode);
+    return { quote, gaslessFallback: false };
+  } catch (err) {
+    if (executionMode !== "gasless") throw err;
+    const message = err instanceof Error ? err.message : String(err);
+    if (!isGaslessOnlyQuoteFailure(message)) throw err;
+    const quote = await client.getSwapQuote({ ...quoteBody, executionMode: "any" });
+    return { quote, gaslessFallback: true };
   }
 }
 
@@ -128,9 +207,12 @@ export function formatIntentMcpQuoteError(
     tokenOut?: TokenHit;
     transportLabel?: string;
     transport?: IntentMcpConfig["transport"];
+    executionMode?: SwapExecutionMode;
+    chainId?: number;
   },
 ): string {
-  const message = err instanceof Error ? err.message : String(err);
+  const rawMessage = err instanceof Error ? err.message : String(err);
+  const message = summarizeIntentMcpTransportError(rawMessage);
   const details: string[] = [];
 
   if (context.chainName && context.amountHuman && context.tokenInSymbol && context.tokenOutSymbol) {
@@ -145,12 +227,27 @@ export function formatIntentMcpQuoteError(
   }
 
   let guidance = "";
-  if (/no quotes available/i.test(message)) {
+  if (/502|503|504|bad gateway|origin_bad_gateway|cloudflare/i.test(rawMessage)) {
+    guidance =
+      " Metalift MCP (mcp.metalift.ai) is temporarily unreachable — this is an upstream outage, not your wallet or Pocket RPC. Wait about 60 seconds and try again. If it keeps failing, try the same swap on Base (often more reliable) or check with Metalift.";
+  } else if (/no quotes available/i.test(message)) {
     guidance =
       " Intent MCP has no route for this pair. Swap liquidity is currently strongest on Ethereum, Base, Arbitrum, and Polygon for ETH/USDC/USDT/DAI. On Base use USDC (not USDT); on Polygon use MATIC (not POL). Cross-chain swaps are not supported in web chat yet.";
     if (/no gasless routes/i.test(message)) {
+      const modeHint =
+        context.executionMode === "gasless"
+          ? " Gasless (CoW) has no route for this pair/amount — switch Swap execution to “Best price” in settings, or try the same swap on Base."
+          : " Try execution mode “Best price” in settings — small amounts on Ethereum Mainnet often have no gasless route.";
+      guidance += modeHint;
+    }
+    if (/FEE_RECEIVER_REQUIRED|feeReceiver is required/i.test(message)) {
       guidance +=
-        " Try execution mode “Best price” or “Gas” in settings — small USDT amounts often fail gasless-only routing.";
+        " 1inch Fusion gasless on Ethereum Mainnet is currently broken upstream (Intent MCP feeReceiver). Use Best price mode, or swap on Base/Arbitrum for CoW gasless.";
+    }
+    const amount = context.amountHuman ? parseFloat(context.amountHuman) : NaN;
+    if (context.chainId === 1 && Number.isFinite(amount) && amount < 20) {
+      guidance +=
+        " On Ethereum Mainnet, swaps under ~$20 may be uneconomical after gas — try Base or a larger amount.";
     }
   }
 
@@ -275,7 +372,7 @@ export type SwapQuoteDisplay = {
   warnings: string[];
   quoteId: string;
   expiresAt: string;
-  executionMode: SwapExecutionMode;
+  executionMode: QuoteExecutionMode;
 };
 
 export function buildSwapQuoteDisplay(
@@ -285,8 +382,20 @@ export function buildSwapQuoteDisplay(
   quote: SanitizedQuote,
   chainName: string,
 ): SwapQuoteDisplay {
-  const gasless = quote.executionMode === "gasless";
-  const executionMode: SwapExecutionMode = gasless ? "gasless" : "gas";
+  const userPaysGas = isUserPaidGasRoute({
+    executionMode: quote.executionMode,
+    route: quote.route,
+    routeType: quote.routeType,
+    gasEstimateUsd: quote.gasEstimateUsd,
+  });
+  const gasless = quote.executionMode === "gasless" && !userPaysGas;
+  const executionMode: QuoteExecutionMode = gasless
+    ? "gasless"
+    : userPaysGas
+      ? "gas"
+      : quote.executionMode === "gas"
+        ? "gas"
+        : "any";
   return {
     chainName,
     chainId: quote.fromChain,
@@ -437,7 +546,12 @@ export async function* runIntentSwapRoute(
     tokenOutResolved = tokenOut;
 
     const amount = humanToAtomic(parsed.amountHuman, tokenIn.decimals);
-    const executionMode = resolveSwapExecutionMode(sessionContext);
+    const requestedMode = resolveSwapExecutionMode(sessionContext);
+    const { mode: executionMode, downgradedFromGasless } = effectiveSwapExecutionModeForQuote(
+      chainId,
+      requestedMode,
+      parseFloat(parsed.amountHuman),
+    );
     const quoteBody: Record<string, unknown> = {
       fromChain: chainId,
       toChain: chainId,
@@ -454,10 +568,41 @@ export async function* runIntentSwapRoute(
 
     yield {
       type: "tool",
-      data: { tool: "intent-mcp.get_swap_quote", input: quoteBody },
+      data: {
+        tool:
+          executionMode === "gasless"
+            ? "intent-mcp.get_gasless_swap_quote"
+            : "intent-mcp.get_swap_quote",
+        input: quoteBody,
+      },
     };
 
-    const quote = await client.getSwapQuote(quoteBody);
+    let { quote, gaslessFallback } = await fetchSwapQuoteWithFallback(client, quoteBody, executionMode);
+    if (gaslessFallback) {
+      yield {
+        type: "tool",
+        data: {
+          tool: "intent-mcp.get_swap_quote",
+          input: { ...quoteBody, executionMode: "any" },
+        },
+      };
+      quote = {
+        ...quote,
+        warnings: [
+          ...quote.warnings,
+          "Gasless routes unavailable for this pair — showing a Best price route instead.",
+        ],
+      };
+    }
+    if (downgradedFromGasless) {
+      quote = {
+        ...quote,
+        warnings: [
+          ...quote.warnings,
+          "Gasless-only routing on Ethereum Mainnet is unavailable (1inch Fusion fee config). Quoted with Best price instead — use Base for CoW gasless.",
+        ],
+      };
+    }
     const display = buildSwapQuoteDisplay(parsed, tokenIn, tokenOut, quote, chainInfo.name);
     const answer = formatQuoteAnswer(parsed, tokenIn, tokenOut, quote, chainInfo.name);
 
@@ -486,6 +631,8 @@ export async function* runIntentSwapRoute(
           tokenOut: tokenOutResolved,
           transportLabel,
           transport: config.transport,
+          executionMode: resolveSwapExecutionMode(sessionContext),
+          chainId,
         }),
         code: "INTENT_MCP_ERROR",
       },

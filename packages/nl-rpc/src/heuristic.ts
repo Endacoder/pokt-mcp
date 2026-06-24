@@ -19,6 +19,8 @@ import {
   wantsSyncing,
   wantsTxLookup,
 } from "./patterns.js";
+import { chainIdIntent } from "./chain-metadata.js";
+import { wantsGasAssessment } from "./gas-assessment.js";
 
 /**
  * Logic-based fallback: infer RPC intents from keywords and extracted entities.
@@ -59,7 +61,7 @@ export function inferIntentHeuristic(query: string, context?: SessionContext): R
     return intent(chain, "eth_blockNumber", [], `Get latest block number on ${chain}`);
   }
 
-  if (wantsGasPrice(query)) {
+  if (wantsGasPrice(query) || wantsGasAssessment(query)) {
     return intent(chain, "eth_gasPrice", [], `Get current gas price on ${chain}`);
   }
 
@@ -105,7 +107,7 @@ export function inferIntentHeuristic(query: string, context?: SessionContext): R
   }
 
   if (wantsChainId(query)) {
-    return intent(chain, "eth_chainId", [], `Get chain ID for ${chain}`);
+    return chainIdIntent(chain);
   }
 
   if (wantsNetVersion(query)) {

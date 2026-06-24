@@ -63,10 +63,14 @@ const TARGET_ASSETS: Record<
   bera: { vs: "bera", symbol: "BERA", decimals: 6 },
   mnt: { vs: "mnt", symbol: "MNT", decimals: 6 },
   mantle: { vs: "mnt", symbol: "MNT", decimals: 6 },
+  euro: { vs: "eur", symbol: "EUR", decimals: 2 },
+  euros: { vs: "eur", symbol: "EUR", decimals: 2 },
+  eur: { vs: "eur", symbol: "EUR", decimals: 2 },
+  fiat: { vs: "usd", symbol: "USD", decimals: 2 },
 };
 
 const CONVERT_QUERY =
-  /\b(in|worth in|value in|convert(?:ed)?\s+to|exchange(?:\s+rate)?\s+to)\s+(?!0x)([a-z0-9.-]+)\b|\bhow\s+much\b.*\bin\s+(?!0x)([a-z0-9.-]+)\b|what(?:'s| is)?\s+(?:that|it)\s+in\s+(?!0x)([a-z0-9.-]+)\b/i;
+  /\b(in|worth in|value in|convert(?:ed)?\s+to|exchange(?:\s+rate)?\s+to)\s+(?!0x)([a-z0-9.-]+)\b|\bhow\s+much\b.*\bin\s+(?!0x)([a-z0-9.-]+)\b|what(?:'s| is)?\s+(?:that|it)\s+in\s+(?!0x)([a-z0-9.-]+)\b|how\s+much\s+is\s+that\b|what(?:'s| is)\s+that\s+worth\b|convert\s+that\b|\bin\s+(?:dollars?|fiat)\b/i;
 
 /** "how much USDT for 1 ETH", "1 ETH in USDC", etc. — spot estimate, not on-chain swap execution */
 const TOKEN_QUOTE_QUERY =
@@ -231,13 +235,25 @@ function buildConvertIntent(
   };
 }
 
+function isVagueConvertFollowUp(query: string): boolean {
+  const q = normalizeForMatch(query);
+  return /\b(how\s+much\s+is\s+that|what(?:'s| is)\s+that\s+worth|convert\s+that)\b/.test(q);
+}
+
+function defaultUsdTarget(): ConvertTarget {
+  return { key: "usd", vs: "usd", symbol: "USD", decimals: 2 };
+}
+
 export function matchConvertQuery(
   query: string,
   chain: string,
   context?: SessionContext,
 ): RpcIntent | null {
-  if (!isConvertQuery(query)) return null;
-  const target = parseTargetAsset(query);
+  const hasConvertContext = Boolean(context?.lastBalance || context?.lastWalletPortfolio);
+  if (!isConvertQuery(query) && !(hasConvertContext && isVagueConvertFollowUp(query))) return null;
+  const target =
+    parseTargetAsset(query) ??
+    (hasConvertContext && isVagueConvertFollowUp(query) ? defaultUsdTarget() : null);
   if (!target) return null;
 
   const addrMatch = query.match(ADDRESS_PATTERN);

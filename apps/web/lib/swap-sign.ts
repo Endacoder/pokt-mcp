@@ -1,5 +1,5 @@
 import type { SigningInstructions } from "./swap-api";
-import { assertSinglePermittedAccount, SwapApiError } from "./swap-api";
+import { assertSinglePermittedAccount, assertActiveWalletMatches, lockSigningAccount, preparePermit2SigningAccount, SwapApiError } from "./swap-api";
 import {
   validateSwapQuoteAgainstInstructions,
   type ExpectedSwapQuote,
@@ -27,7 +27,9 @@ import {
   validateTypedDataForWallet,
   type WalletTypedDataPayload,
 } from "./typed-data-wallet";
-import { getAddress, isAddress, recoverTypedDataAddress } from "viem";
+import { recoverMetaMaskTypedDataSigner, verifyMetaMaskTypedDataSigner } from "./metamask-typed-data";
+import { getAddress, isAddress, recoverTypedDataAddress, verifyTypedData } from "viem";
+import { resolveWalletProviderOrThrow, walletConnectionHint, getBoundConnectedAddress } from "./wallet-provider";
 
 const PERMIT2_ECDSA_SIG_RE = /^0x[a-fA-F0-9]{130}$/;
 
@@ -215,6 +217,8 @@ async function sendSwapOnChainTransactions(
   skipInstructionApproves = false,
   proactiveApproveTx?: Record<string, unknown>,
   swapAmountAtomic?: string,
+  /** When true, only ERC20→Permit2 approvals — not router swap execution (comes after Permit2 sign). */
+  approvalsOnly = false,
 ): Promise<string> {
   if (!apiUrl || chainId == null) {
     throw new Error("Cannot confirm transaction without Pocket RPC access.");
@@ -229,7 +233,8 @@ async function sendSwapOnChainTransactions(
   }
 
   const swapTxs = collectSwapExecutionTransactions(instructions, allowedTokenAddress);
-  const allTxs = [...approveTxs, ...swapTxs].map((tx) => normalizeTx(tx, walletAddress));
+  const txRecords = approvalsOnly ? approveTxs : [...approveTxs, ...swapTxs];
+  const allTxs = txRecords.map((tx) => normalizeTx(tx, walletAddress));
 
   if (allTxs.length === 0) return "";
 
@@ -270,6 +275,37 @@ async function sendSwapOnChainTransactions(
     waitForConfirmation: (txHash) => waitForTransactionConfirmation(txHash, 120_000, apiUrl, chainId),
   });
 }
+
+export type SwapSigningStepKind = "token_approval" | "permit2" | "typed_data" | "transaction";
+
+/** Next wallet action for Intent MCP — approval tx before Permit2 when both are present. */
+export function resolveSwapSigningStep(
+  instructions: SigningInstructions,
+  quotedTokenAddress?: string,
+): SwapSigningStepKind {
+  const phase = String(instructions.phase ?? "").toLowerCase();
+  if (phase === "token_approval") return "token_approval";
+
+  const payloads = signingPayloadsFromInstructions(instructions);
+  const approveTxs = collectApproveTransactions(instructions, quotedTokenAddress);
+  if (payloads.length > 0 && approveTxs.length > 0) return "token_approval";
+  if (payloads.length > 0) {
+    return payloads.some(isPermit2TypedDataPayload) ? "permit2" : "typed_data";
+  }
+  if (approveTxs.length > 0) return "token_approval";
+
+  const swapTxs = collectSwapExecutionTransactions(instructions, quotedTokenAddress);
+  if (swapTxs.length > 0) return "transaction";
+
+  const type = String(instructions.type ?? "").toLowerCase();
+  if (type === "transaction") return "transaction";
+
+  throw new Error("No wallet signing step in Intent MCP instructions — request a new quote.");
+}
+
+export type SwapSignResult =
+  | { kind: "tx_hash"; value: string }
+  | { kind: "signature"; value: string; signedTypedData?: WalletTypedDataPayload };
 
 /** True when instructions include an on-chain swap execution tx (e.g. Uniswap Universal Router). */
 export function hasSwapExecutionTransaction(
@@ -432,31 +468,260 @@ export function lastPermit2PayloadFromInstructions(
   return payloads[payloads.length - 1];
 }
 
-/** Recover Permit2 signer and ensure it matches the live connected wallet before submit. */
-export async function assertPermit2SignatureMatchesWallet(
+/** Recover the Ethereum address that signed a Permit2 EIP-712 payload. */
+export async function recoverPermit2Signer(
   payload: TypedDataPayload,
   signature: string,
-  liveWallet?: string,
+  signedTypedData?: WalletTypedDataPayload,
 ): Promise<string> {
   const normalized = normalizePermitSignature(signature);
-  const typedData = walletTypedDataPayload(payload);
-  const recovered = await recoverTypedDataAddress({
-    domain: typedData.domain as Parameters<typeof recoverTypedDataAddress>[0]["domain"],
-    types: typedData.types as Parameters<typeof recoverTypedDataAddress>[0]["types"],
-    primaryType: typedData.primaryType as Parameters<typeof recoverTypedDataAddress>[0]["primaryType"],
-    message: typedData.message as Parameters<typeof recoverTypedDataAddress>[0]["message"],
-    signature: normalized as `0x${string}`,
-  });
+  const typedData = signedTypedData ?? walletTypedDataPayload(payload);
+  const candidates: WalletTypedDataPayload[] = [
+    typedData,
+    JSON.parse(JSON.stringify(typedData)) as WalletTypedDataPayload,
+  ];
+  for (const td of candidates) {
+    try {
+      return recoverMetaMaskTypedDataSigner(td, normalized);
+    } catch {
+      /* MetaMask recovery failed — try viem (WalletConnect / non-MetaMask wallets) */
+    }
+    try {
+      const recovered = await recoverTypedDataAddress({
+        domain: td.domain as Parameters<typeof recoverTypedDataAddress>[0]["domain"],
+        types: td.types as Parameters<typeof recoverTypedDataAddress>[0]["types"],
+        primaryType: td.primaryType as Parameters<typeof recoverTypedDataAddress>[0]["primaryType"],
+        message: td.message as Parameters<typeof recoverTypedDataAddress>[0]["message"],
+        signature: normalized as `0x${string}`,
+      });
+      return getAddress(recovered);
+    } catch {
+      /* try next candidate */
+    }
+  }
+  throw new SwapApiError(
+    "Could not recover Permit2 signer from signature.",
+    "WALLET_ACCOUNT_MISMATCH",
+  );
+}
 
-  const signer = getAddress(recovered);
-  if (liveWallet && getAddress(liveWallet) !== signer) {
+export type TypedDataSignResult = {
+  signature: string;
+  /** Exact EIP-712 payload passed to MetaMask — use for recovery (must match what was signed). */
+  signedTypedData: WalletTypedDataPayload;
+};
+
+function parseWalletSignature(raw: unknown): string {
+  if (typeof raw === "string") return raw.trim();
+  if (raw && typeof raw === "object") {
+    const sig = (raw as { signature?: unknown }).signature;
+    if (typeof sig === "string") return sig.trim();
+  }
+  throw new SwapApiError(
+    "Wallet returned an invalid signature format. Confirm the Permit2 EIP-712 prompt (Sign typed data), not an ERC20 approval transaction.",
+    "WALLET_ACCOUNT_MISMATCH",
+  );
+}
+
+function typedDataVerifyArgs(td: WalletTypedDataPayload) {
+  return {
+    domain: td.domain as Parameters<typeof verifyTypedData>[0]["domain"],
+    types: td.types as Parameters<typeof verifyTypedData>[0]["types"],
+    primaryType: td.primaryType as Parameters<typeof verifyTypedData>[0]["primaryType"],
+    message: td.message as Parameters<typeof verifyTypedData>[0]["message"],
+  };
+}
+
+function isSamePermit2SignedPayload(
+  signed: WalletTypedDataPayload,
+  permit: WalletTypedDataPayload,
+): boolean {
+  return signed.domain?.name === "Permit2" && signed.primaryType === permit.primaryType;
+}
+
+/** True when signature validates for connected wallet against the exact payload sent to MetaMask. */
+export async function verifyPermit2SignatureForWallet(
+  signedTypedData: WalletTypedDataPayload,
+  signature: string,
+  connectedWallet: string,
+): Promise<boolean> {
+  const connected = getAddress(connectedWallet);
+  const normalized = normalizePermitSignature(signature) as `0x${string}`;
+  const candidates: WalletTypedDataPayload[] = [
+    signedTypedData,
+    JSON.parse(JSON.stringify(signedTypedData)) as WalletTypedDataPayload,
+  ];
+  for (const td of candidates) {
+    if (verifyMetaMaskTypedDataSigner(td, normalized, connected)) {
+      return true;
+    }
+    try {
+      if (
+        await verifyTypedData({
+          address: connected,
+          ...typedDataVerifyArgs(td),
+          signature: normalized,
+        })
+      ) {
+        return true;
+      }
+    } catch {
+      /* try next candidate encoding */
+    }
+  }
+  return false;
+}
+
+async function assertPermit2SignatureForConnectedWallet(
+  signedTypedData: WalletTypedDataPayload,
+  signature: string,
+  connectedWallet: string,
+): Promise<void> {
+  const connected = getAddress(connectedWallet);
+  const verified = await verifyPermit2SignatureForWallet(signedTypedData, signature, connected);
+  if (verified) {
+    return;
+  }
+
+  let recoveredSigner: string | undefined;
+  try {
+    recoveredSigner = recoverMetaMaskTypedDataSigner(signedTypedData, normalizePermitSignature(signature));
+  } catch {
+    try {
+      recoveredSigner = getAddress(
+        await recoverTypedDataAddress({
+          domain: signedTypedData.domain as Parameters<typeof recoverTypedDataAddress>[0]["domain"],
+          types: signedTypedData.types as Parameters<typeof recoverTypedDataAddress>[0]["types"],
+          primaryType: signedTypedData.primaryType as Parameters<typeof recoverTypedDataAddress>[0]["primaryType"],
+          message: signedTypedData.message as Parameters<typeof recoverTypedDataAddress>[0]["message"],
+          signature: normalizePermitSignature(signature) as `0x${string}`,
+        }),
+      );
+    } catch {
+      recoveredSigner = undefined;
+    }
+  }
+
+  const accountHint =
+    recoveredSigner && recoveredSigner !== connected
+      ? `MetaMask signed as ${recoveredSigner}, not ${connected}. If the account verification message signed correctly, you switched accounts in the Permit2 popup — use ${connected} for every MetaMask prompt in this swap. `
+      : "";
+
+  throw new SwapApiError(
+    `Permit2 signature does not verify for your connected wallet (${connected}). ${accountHint}` +
+      "The ERC20 approval and Permit2 signature must use the same address — approve USDC from this wallet, then sign the Permit2 typed-data prompt (no gas) from the same account. " +
+      "If you confirmed a transaction when the app expected a signature, request a fresh quote and watch for two different MetaMask prompts: (1) Approve USDC transaction, (2) Sign Permit2 message. " +
+      walletConnectionHint(),
+    "WALLET_ACCOUNT_MISMATCH",
+  );
+}
+
+export type Permit2SubmitWallet = {
+  submitWallet: string;
+  recoveredSigner: string;
+  /** True when MetaMask signed with a different account than the quote wallet. */
+  corrected: boolean;
+  quoteWallet?: string;
+};
+
+/**
+ * Resolve submit wallet from Permit2 signature — heals account mismatch via sync_permit_signer on submit.
+ */
+export async function resolvePermit2SubmitWallet(
+  payload: TypedDataPayload,
+  signature: string,
+  connectedWallet: string,
+  signedTypedData?: WalletTypedDataPayload,
+): Promise<Permit2SubmitWallet> {
+  const connected = getAddress(connectedWallet);
+  const permitTypedData = walletTypedDataPayload(payload);
+  const verifyTypedData =
+    signedTypedData && isSamePermit2SignedPayload(signedTypedData, permitTypedData)
+      ? signedTypedData
+      : permitTypedData;
+
+  const verifiedForConnected = await verifyPermit2SignatureForWallet(
+    verifyTypedData,
+    signature,
+    connected,
+  );
+  if (verifiedForConnected) {
+    return {
+      submitWallet: connected,
+      recoveredSigner: connected,
+      corrected: false,
+      quoteWallet: connected,
+    };
+  }
+
+  if (
+    signedTypedData &&
+    !isSamePermit2SignedPayload(signedTypedData, permitTypedData)
+  ) {
     throw new SwapApiError(
-      `Permit2 was signed by ${signer} but this swap requires ${getAddress(liveWallet)}. ` +
-        `Your MetaMask active account is likely ${signer}. Click Connect Wallet while ${getAddress(liveWallet)} is selected in MetaMask, request a new quote, and in the Permit2 popup verify the account before Confirm.`,
+      `Permit2 signature does not verify for your connected wallet (${connected}). ${walletConnectionHint()}`,
       "WALLET_ACCOUNT_MISMATCH",
     );
   }
-  return signer;
+
+  let recoveredSigner: string;
+  try {
+    recoveredSigner = getAddress(
+      await recoverPermit2Signer(payload, signature, verifyTypedData),
+    );
+  } catch {
+    throw new SwapApiError(
+      `Permit2 signature does not verify for your connected wallet (${connected}). ${walletConnectionHint()}`,
+      "WALLET_ACCOUNT_MISMATCH",
+    );
+  }
+
+  const verifiedRecovered = await verifyPermit2SignatureForWallet(
+    verifyTypedData,
+    signature,
+    recoveredSigner,
+  );
+  if (!verifiedRecovered) {
+    throw new SwapApiError(
+      `Permit2 signature does not verify for your connected wallet (${connected}). ${walletConnectionHint()}`,
+      "WALLET_ACCOUNT_MISMATCH",
+    );
+  }
+
+  if (recoveredSigner === connected) {
+    return {
+      submitWallet: connected,
+      recoveredSigner: connected,
+      corrected: false,
+      quoteWallet: connected,
+    };
+  }
+
+  return {
+    submitWallet: recoveredSigner,
+    recoveredSigner,
+    corrected: true,
+    quoteWallet: connected,
+  };
+}
+
+/** Ensure Permit2 signature came from the connected wallet before submit. */
+export async function assertPermit2SignatureMatchesWallet(
+  payload: TypedDataPayload,
+  signature: string,
+  connectedWallet?: string,
+  signedTypedData?: WalletTypedDataPayload,
+): Promise<string> {
+  if (!connectedWallet) {
+    return recoverPermit2Signer(payload, signature, signedTypedData);
+  }
+  const resolved = await resolvePermit2SubmitWallet(
+    payload,
+    signature,
+    connectedWallet,
+    signedTypedData,
+  );
+  return resolved.submitWallet;
 }
 
 function isMissingReactorSignError(err: unknown): boolean {
@@ -470,70 +735,50 @@ async function signTypedDataPayload(
   address: string,
   payload: TypedDataPayload,
   chainId?: number,
-): Promise<string> {
+): Promise<TypedDataSignResult> {
   validateTypedDataForWallet(payload as WalletTypedDataPayload);
   const typedData = walletTypedDataPayload(payload);
   const typedDataJson = JSON.stringify(typedData);
-  const signer = resolveSignerAddress(payload, address);
-  await assertSinglePermittedAccount(signer);
+  const signedTypedData = JSON.parse(typedDataJson) as WalletTypedDataPayload;
+  const bound = getBoundConnectedAddress();
+  const signer = bound ? getAddress(bound) : resolveSignerAddress(payload, address);
+  resolveOrderAccountFromPayload(payload, signer);
+  if (isPermit2TypedDataPayload(payload)) {
+    await preparePermit2SigningAccount(signer);
+  } else {
+    await lockSigningAccount(signer);
+  }
+  await assertActiveWalletMatches(signer);
   let signature: string;
   try {
-    signature = (await provider.request({
-      method: "eth_signTypedData_v4",
-      params: [signer, typedDataJson],
-    })) as string;
+    signature = parseWalletSignature(
+      await provider.request({
+        method: "eth_signTypedData_v4",
+        params: [signer, typedDataJson],
+      }),
+    );
   } catch (err) {
     if (isWalletRpcHttpError(err)) {
       throw new Error(walletRpcErrorMessage(chainId));
     }
     if (!isWalletInvalidInputError(err)) throw err;
-    signature = (await provider.request({
-      method: "eth_signTypedData_v4",
-      params: [signer, typedDataJson],
-    })) as string;
+    signature = parseWalletSignature(
+      await provider.request({
+        method: "eth_signTypedData_v4",
+        params: [signer, signedTypedData],
+      }),
+    );
   }
+  const normalized = normalizePermitSignature(signature);
   if (isPermit2TypedDataPayload(payload)) {
-    await assertPermit2SignatureMatchesWallet(payload, signature, signer);
-  }
-  return signature;
-}
-
-async function signStep(
-  provider: NonNullable<Window["ethereum"]>,
-  address: string,
-  step: SigningInstructions,
-  walletTxOptions?: { apiUrl?: string; chainId?: number; allowedTokenAddress?: string },
-): Promise<string> {
-  const method = (step.method ?? step.type ?? "").toLowerCase();
-
-  if (method.includes("typed") || step.typedData || step.eip712 || step.domain) {
-    if (method && !method.includes("typed") && method !== "eth_signtypeddata_v4") {
-      throw new Error(`Unsupported signing method "${step.method ?? step.type}" — only EIP-712 typed data is allowed for swaps.`);
+    if (!PERMIT2_ECDSA_SIG_RE.test(normalized)) {
+      throw new SwapApiError(
+        "Wallet did not return a valid Permit2 signature. Confirm the EIP-712 Permit2 prompt — not an ERC20 approval transaction.",
+        "WALLET_ACCOUNT_MISMATCH",
+      );
     }
-    return signTypedDataPayload(provider, address, buildTypedDataPayload(step), walletTxOptions?.chainId);
   }
-
-  const tx = (step.transaction ?? step.tx) as Record<string, unknown> | undefined;
-  if (method.includes("transaction") || method === "eth_sendtransaction" || tx) {
-    if (method && method !== "eth_sendtransaction" && !method.includes("transaction")) {
-      throw new Error(`Unsupported signing method "${step.method ?? step.type}" — only eth_sendTransaction is allowed.`);
-    }
-    if (!tx) throw new Error("Transaction signing requested but no transaction payload");
-    if (walletTxOptions?.allowedTokenAddress && isErc20ApproveTransaction(tx)) {
-      validateSwapApprovalTransaction(tx, walletTxOptions.allowedTokenAddress);
-    }
-    return sendWalletTransaction(provider, address, normalizeTx(tx, address), walletTxOptions);
-  }
-
-  if (method.includes("personal") || step.personalMessage) {
-    throw new Error("personal_sign is not allowed for swap intents — request a new quote.");
-  }
-
-  if (Array.isArray(step.params) && step.params.length > 0 && step.method) {
-    throw new Error(`Unsupported signing method "${step.method}" — swap signing is restricted to EIP-712 and approve transactions.`);
-  }
-
-  throw new Error("Unsupported signing step from Intent MCP");
+  return { signature: normalized, signedTypedData };
 }
 
 function isWalletInvalidInputError(err: unknown): boolean {
@@ -554,10 +799,9 @@ export async function signQuoteConfirmationMessage(
   if (!message.includes(QUOTE_CONFIRMATION_PREFIX)) {
     throw new Error("Refusing to sign — message is not a MetaLift quote confirmation.");
   }
-  const provider = window.ethereum;
-  if (!provider) throw new Error("No wallet provider — connect your wallet first");
+  const provider = resolveWalletProviderOrThrow();
 
-  const signer = await assertSinglePermittedAccount(walletAddress);
+  const signer = await lockSigningAccount(walletAddress);
 
   if (chainId != null) {
     await ensureWalletNetworkForSwap(provider, chainId);
@@ -576,7 +820,186 @@ export async function signQuoteConfirmationMessage(
   }
 }
 
-/** Sign swap intent in the connected wallet; may require approval tx then EIP-712 signature. */
+async function signTokenApprovalStep(
+  provider: NonNullable<Window["ethereum"]>,
+  signer: string,
+  instructions: SigningInstructions,
+  apiUrl?: string,
+  chainId?: number,
+  expectedQuote?: ExpectedSwapQuote,
+): Promise<string> {
+  const permitCtx = expectedQuote
+    ? { tokenAddress: expectedQuote.tokenInAddress, amountAtomic: expectedQuote.amountInAtomic, chainId }
+    : undefined;
+  const usesPermit2Erc20 =
+    permitCtx != null && !isNativeEthTokenAddress(permitCtx.tokenAddress);
+  const proactiveApproveTx =
+    usesPermit2Erc20
+      ? await prepareApproveTransactionIfNeeded(provider, signer, permitCtx, apiUrl)
+      : undefined;
+
+  const txHash = await sendSwapOnChainTransactions(
+    provider,
+    signer,
+    instructions,
+    apiUrl,
+    chainId,
+    expectedQuote?.tokenInAddress,
+    false,
+    proactiveApproveTx,
+    expectedQuote?.amountInAtomic,
+    true,
+  );
+  if (!txHash) {
+    throw new Error(
+      "Token approval transaction was not broadcast. Confirm the ERC20 approve prompt in MetaMask (transaction — not Sign typed data).",
+    );
+  }
+  return txHash;
+}
+
+async function signSwapExecutionStep(
+  provider: NonNullable<Window["ethereum"]>,
+  signer: string,
+  instructions: SigningInstructions,
+  apiUrl?: string,
+  chainId?: number,
+  expectedQuote?: ExpectedSwapQuote,
+): Promise<string> {
+  const txHash = await sendSwapOnChainTransactions(
+    provider,
+    signer,
+    instructions,
+    apiUrl,
+    chainId,
+    expectedQuote?.tokenInAddress,
+    true,
+    undefined,
+    expectedQuote?.amountInAtomic,
+    false,
+  );
+  if (!txHash) {
+    throw new Error("Swap execution transaction was not broadcast — check your wallet.");
+  }
+  return txHash;
+}
+
+async function signTypedDataStep(
+  provider: NonNullable<Window["ethereum"]>,
+  signer: string,
+  instructions: SigningInstructions,
+  expectedQuote?: ExpectedSwapQuote,
+  chainId?: number,
+): Promise<SwapSignResult> {
+  const payloads = signingPayloadsFromInstructions(instructions);
+  if (payloads.length === 0) {
+    throw new Error("No EIP-712 signing payload in Intent MCP instructions.");
+  }
+  if (expectedQuote) {
+    validateSwapQuoteAgainstInstructions(instructions, expectedQuote);
+  }
+  for (const payload of payloads) {
+    resolveOrderAccountFromPayload(payload, signer);
+  }
+
+  let lastSigned: TypedDataSignResult | undefined;
+  let lastPermit2Signed: TypedDataSignResult | undefined;
+  try {
+    for (const payload of payloads) {
+      await lockSigningAccount(signer);
+      const signed = await signTypedDataPayload(provider, signer, payload, chainId);
+      lastSigned = signed;
+      if (isPermit2TypedDataPayload(payload)) {
+        lastPermit2Signed = signed;
+      }
+    }
+  } catch (err) {
+    if (isWalletInvalidInputError(err)) {
+      throw new Error(
+        "Wallet rejected the signing payload (Invalid input). Request a fresh quote and try again, or use a different wallet.",
+      );
+    }
+    if (isMissingReactorSignError(err)) {
+      throw new Error(
+        "Wallet rejected the swap signature (missing reactor address in the order). Request a fresh quote and try again.",
+      );
+    }
+    if (isWalletRpcHttpError(err)) {
+      throw new Error(walletRpcErrorMessage(chainId));
+    }
+    throw err;
+  }
+  if (!lastSigned) {
+    throw new Error("No signature returned from wallet.");
+  }
+
+  const permitPayload = lastPermit2PayloadFromInstructions(instructions) ?? payloads[payloads.length - 1];
+  const submitSigned = lastPermit2Signed ?? lastSigned;
+  if (permitPayload && isPermit2TypedDataPayload(permitPayload)) {
+    await assertPermit2SignatureMatchesWallet(
+      permitPayload,
+      submitSigned.signature,
+      signer,
+      submitSigned.signedTypedData,
+    );
+  }
+
+  return {
+    kind: "signature",
+    value: submitSigned.signature,
+    signedTypedData: submitSigned.signedTypedData,
+  };
+}
+
+/** Sign one Intent MCP wallet step — approval tx, Permit2 EIP-712, or swap execution tx. */
+export async function signSwapSignStep(
+  instructions: SigningInstructions,
+  walletAddress: string,
+  expectedQuote?: ExpectedSwapQuote,
+  chainId?: number,
+  apiUrl?: string,
+): Promise<SwapSignResult> {
+  const provider = resolveWalletProviderOrThrow();
+  const signer = await lockSigningAccount(walletAddress);
+
+  if (chainId != null) {
+    await ensureWalletNetworkForSwap(provider, chainId);
+  }
+
+  const step = resolveSwapSigningStep(instructions, expectedQuote?.tokenInAddress);
+
+  switch (step) {
+    case "token_approval": {
+      const txHash = await signTokenApprovalStep(
+        provider,
+        signer,
+        instructions,
+        apiUrl,
+        chainId,
+        expectedQuote,
+      );
+      return { kind: "tx_hash", value: txHash };
+    }
+    case "permit2":
+    case "typed_data":
+      return signTypedDataStep(provider, signer, instructions, expectedQuote, chainId);
+    case "transaction": {
+      const txHash = await signSwapExecutionStep(
+        provider,
+        signer,
+        instructions,
+        apiUrl,
+        chainId,
+        expectedQuote,
+      );
+      return { kind: "tx_hash", value: txHash };
+    }
+    default:
+      throw new Error("No wallet signing step in Intent MCP instructions — request a new quote.");
+  }
+}
+
+/** @deprecated Prefer signSwapSignStep — runs a single MCP signing phase per call. */
 export async function signSwapInstructions(
   instructions: SigningInstructions,
   walletAddress: string,
@@ -584,112 +1007,8 @@ export async function signSwapInstructions(
   chainId?: number,
   apiUrl?: string,
 ): Promise<string> {
-  const provider = window.ethereum;
-  if (!provider) throw new Error("No wallet provider — connect your wallet first");
-
-  const signer = await assertSinglePermittedAccount(walletAddress);
-
-  if (chainId != null) {
-    await ensureWalletNetworkForSwap(provider, chainId);
-  }
-
-  const permitCtx = expectedQuote
-    ? { tokenAddress: expectedQuote.tokenInAddress, amountAtomic: expectedQuote.amountInAtomic, chainId }
-    : undefined;
-  const payloads = signingPayloadsFromInstructions(instructions);
-  const usesPermit2Erc20 =
-    permitCtx != null && !isNativeEthTokenAddress(permitCtx.tokenAddress);
-  const ranPermit2TypedData = payloads.some(isPermit2TypedDataPayload);
-  const proactiveApproveTx =
-    usesPermit2Erc20
-      ? await prepareApproveTransactionIfNeeded(provider, signer, permitCtx, apiUrl)
-      : undefined;
-  const skipInstructionApproves = Boolean(
-    usesPermit2Erc20 && (ranPermit2TypedData || proactiveApproveTx),
-  );
-
-  const executionTxHash = await sendSwapOnChainTransactions(
-    provider,
-    signer,
-    instructions,
-    apiUrl,
-    chainId,
-    expectedQuote?.tokenInAddress,
-    skipInstructionApproves,
-    proactiveApproveTx,
-    expectedQuote?.amountInAtomic,
-  );
-
-  if (payloads.length > 0) {
-    if (expectedQuote) {
-      validateSwapQuoteAgainstInstructions(instructions, expectedQuote);
-    }
-    for (const payload of payloads) {
-      resolveOrderAccountFromPayload(payload, signer);
-    }
-    let lastSignature = "";
-    try {
-      for (const payload of payloads) {
-        await assertSinglePermittedAccount(signer);
-        lastSignature = await signTypedDataPayload(provider, signer, payload, chainId);
-      }
-    } catch (err) {
-      if (isWalletInvalidInputError(err)) {
-        throw new Error(
-          "Wallet rejected the signing payload (Invalid input). Request a fresh quote and try again, or use a different wallet.",
-        );
-      }
-      if (isMissingReactorSignError(err)) {
-        throw new Error(
-          "Wallet rejected the swap signature (missing reactor address in the order). Request a fresh quote and try again.",
-        );
-      }
-      if (isWalletRpcHttpError(err)) {
-        throw new Error(walletRpcErrorMessage(chainId));
-      }
-      throw err;
-    }
-    const normalizedPermitSig = normalizePermitSignature(lastSignature);
-    if (!PERMIT2_ECDSA_SIG_RE.test(normalizedPermitSig)) {
-      throw new Error(
-        "Wallet did not return a valid Permit2 signature. Sign the EIP-712 permit prompt (not the ERC20 approval transaction), then try again.",
-      );
-    }
-    const lastPayload = payloads[payloads.length - 1];
-    if (lastPayload) {
-      await assertPermit2SignatureMatchesWallet(lastPayload, normalizedPermitSig, signer);
-    }
-    return normalizedPermitSig;
-  }
-
-  if (executionTxHash) return executionTxHash;
-
-  const walletTxOptions =
-    apiUrl && chainId != null
-      ? { apiUrl, chainId, allowedTokenAddress: expectedQuote?.tokenInAddress }
-      : expectedQuote?.tokenInAddress
-        ? { allowedTokenAddress: expectedQuote.tokenInAddress }
-        : undefined;
-
-  if (Array.isArray(instructions.steps)) {
-    const walletSteps = instructions.steps.filter(
-      (step): step is SigningInstructions => typeof step === "object" && step !== null,
-    );
-    if (walletSteps.length > 0) {
-      let lastSignature = executionTxHash;
-      for (const step of walletSteps) {
-        if (extractTxRecord(step)) continue;
-        lastSignature = await signStep(provider, signer, step, walletTxOptions);
-      }
-      return lastSignature;
-    }
-  }
-
-  if (extractTxRecord(instructions)) {
-    return signStep(provider, signer, instructions, walletTxOptions);
-  }
-
-  throw new Error("No wallet signing step in Intent MCP instructions — request a new quote.");
+  const result = await signSwapSignStep(instructions, walletAddress, expectedQuote, chainId, apiUrl);
+  return result.value;
 }
 
 export { isWalletInvalidInputError };

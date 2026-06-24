@@ -28,6 +28,10 @@ export const SOLANA_METHODS = [
 
 export const COSMOS_METHODS = ["status", "block", "tx"] as const;
 
+export const SUI_METHODS = ["sui_getBalance", "sui_getObject", "sui_getTransactionBlock"] as const;
+export const NEAR_METHODS = ["query", "block", "tx"] as const;
+export const TRON_METHODS = ["eth_chainId", "eth_getBalance", "eth_blockNumber"] as const;
+
 export function listMethodsForProtocol(protocol: ChainProtocol): readonly string[] {
   switch (protocol) {
     case "evm":
@@ -36,6 +40,12 @@ export function listMethodsForProtocol(protocol: ChainProtocol): readonly string
       return SOLANA_METHODS;
     case "cosmos":
       return COSMOS_METHODS;
+    case "sui":
+      return SUI_METHODS;
+    case "near":
+      return NEAR_METHODS;
+    case "tron":
+      return TRON_METHODS;
     default:
       return EVM_METHODS;
   }

@@ -114,6 +114,17 @@ components:
           type: string
         endpoint:
           type: string
+    ChatHistoryMessage:
+      type: object
+      required:
+        - role
+        - content
+      properties:
+        role:
+          type: string
+          enum: [user, assistant]
+        content:
+          type: string
     ChatRequest:
       type: object
       required:
@@ -125,6 +136,16 @@ components:
           type: string
         sessionId:
           type: string
+        history:
+          type: array
+          description: Prior conversation turns for follow-up context
+          items:
+            $ref: "#/components/schemas/ChatHistoryMessage"
+        connectedAddress:
+          type: string
+        swapExecutionMode:
+          type: string
+          enum: [any, gasless, gas]
     RpcRequest:
       type: object
       required:

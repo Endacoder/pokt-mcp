@@ -1,88 +1,22 @@
 import type { RpcIntent, SessionContext } from "@pokt-mcp/shared";
+import {
+  formatTimeOffsetLabel,
+  isTemporalFollowUp,
+  parseTimeOffsetSeconds,
+} from "./pattern-lib/index.js";
 import { inferChain, intent, resolveAddress, wantsBalance, wantsGasPrice, wantsLatestBlock } from "./patterns.js";
 
 export type TemporalSubject = "gas" | "balance" | "blockNumber";
 
-const TIME_OFFSET =
-  /(\d+(?:\.\d+)?)\s*(seconds?|secs?|s|minutes?|mins?|m|hours?|hrs?|h|days?|d|weeks?|w|months?|mo)\s+ago\b/i;
-
-const TEMPORAL_FOLLOW_UP =
-  /\b(what\s+was\s+it|what\s+about\s+it|how\s+about\s+(?:then|it)|and\s+(?:then|what\s+about))\b/i;
-
-const UNIT_SECONDS: Record<string, number> = {
-  s: 1,
-  sec: 1,
-  secs: 1,
-  second: 1,
-  seconds: 1,
-  m: 60,
-  min: 60,
-  mins: 60,
-  minute: 60,
-  minutes: 60,
-  h: 3600,
-  hr: 3600,
-  hrs: 3600,
-  hour: 3600,
-  hours: 3600,
-  d: 86400,
-  day: 86400,
-  days: 86400,
-  w: 604800,
-  week: 604800,
-  weeks: 604800,
-  mo: 2592000,
-  month: 2592000,
-  months: 2592000,
-};
-
-export function parseTimeOffsetSeconds(query: string): number | null {
-  const q = query.toLowerCase();
-  if (/\byesterday\b/.test(q)) return 86_400;
-  if (/\blast\s+hour\b/.test(q)) return 3_600;
-  if (/\blast\s+day\b/.test(q)) return 86_400;
-  if (/\blast\s+week\b/.test(q)) return 604_800;
-  if (/\ban?\s+hour\s+ago\b/.test(q)) return 3_600;
-  if (/\ban?\s+day\s+ago\b/.test(q)) return 86_400;
-
-  const match = q.match(TIME_OFFSET);
-  if (!match) return null;
-
-  const amount = parseFloat(match[1]);
-  if (!Number.isFinite(amount) || amount <= 0) return null;
-
-  const unitKey = match[2].toLowerCase().replace(/s$/, "");
-  const seconds = UNIT_SECONDS[unitKey] ?? UNIT_SECONDS[`${unitKey}s`];
-  if (!seconds) return null;
-
-  return Math.round(amount * seconds);
-}
-
-export function formatTimeOffsetLabel(seconds: number): string {
-  if (seconds % 86_400 === 0 && seconds >= 86_400) {
-    const days = seconds / 86_400;
-    return days === 1 ? "1 day ago" : `${days} days ago`;
-  }
-  if (seconds % 3_600 === 0 && seconds >= 3_600) {
-    const hours = seconds / 3_600;
-    return hours === 1 ? "1 hour ago" : `${hours} hours ago`;
-  }
-  if (seconds % 60 === 0 && seconds >= 60) {
-    const minutes = seconds / 60;
-    return minutes === 1 ? "1 minute ago" : `${minutes} minutes ago`;
-  }
-  return seconds === 1 ? "1 second ago" : `${seconds} seconds ago`;
-}
-
-function isTemporalFollowUp(query: string): boolean {
-  return TEMPORAL_FOLLOW_UP.test(query);
-}
+export { parseTimeOffsetSeconds, formatTimeOffsetLabel } from "./pattern-lib/time-offsets.js";
 
 function resolveSubject(
   query: string,
   context?: SessionContext,
+  chainHint?: string,
 ): { subject: TemporalSubject; chain: string; params: unknown[] } | null {
   const followUp = isTemporalFollowUp(query);
+  const offsetOnly = parseTimeOffsetSeconds(query) !== null;
   const last = context?.lastQuery;
 
   if (wantsGasPrice(query) || /\bgas\b/i.test(query)) {
@@ -110,10 +44,11 @@ function resolveSubject(
     };
   }
 
-  if (followUp && last) {
+  if ((followUp || offsetOnly) && last) {
+    const chain = chainHint ?? inferChain(query, context) ?? last.chain;
     return {
       subject: last.subject,
-      chain: last.chain,
+      chain,
       params: last.params ?? [],
     };
   }
@@ -122,7 +57,7 @@ function resolveSubject(
     if (last.subject === "gas" && /\b(price|fee|cost)\b/i.test(query)) {
       return { subject: "gas", chain: inferChain(query, context) || last.chain, params: [] };
     }
-    if (last.subject === "balance" && /\b(balance|worth|holdings)\b/i.test(query)) {
+    if (last.subject === "balance" && /\b(balance|worth|holdings)\b/.test(query)) {
       const addr = address ?? (last.params?.[0] as string | undefined);
       if (addr) return { subject: "balance", chain: last.chain, params: [addr] };
     }
@@ -131,18 +66,12 @@ function resolveSubject(
   return null;
 }
 
-export function matchTemporalQuery(
-  query: string,
-  chain: string,
-  context?: SessionContext,
-): RpcIntent | null {
-  const offsetSeconds = parseTimeOffsetSeconds(query);
-  if (offsetSeconds === null) return null;
-
-  const resolved = resolveSubject(query, context);
-  if (!resolved) return null;
-
-  const subjectChain = resolved.chain || chain;
+function buildTemporalIntent(
+  resolved: { subject: TemporalSubject; chain: string; params: unknown[] },
+  offsetSeconds: number,
+  defaultChain: string,
+): RpcIntent {
+  const subjectChain = resolved.chain || defaultChain;
   const label = formatTimeOffsetLabel(offsetSeconds);
 
   let summary: string;
@@ -164,6 +93,41 @@ export function matchTemporalQuery(
     [subjectChain, resolved.subject, offsetSeconds, ...resolved.params],
     summary,
   );
+}
+
+/** Session-aware temporal follow-up (e.g. gas → "what was it 1 hour ago"). */
+export function matchTemporalFollowUp(
+  query: string,
+  chain: string,
+  context?: SessionContext,
+  expandedQuery?: string,
+): RpcIntent | null {
+  if (!context?.lastQuery) return null;
+
+  const offsetSeconds =
+    parseTimeOffsetSeconds(query) ??
+    (expandedQuery && expandedQuery !== query ? parseTimeOffsetSeconds(expandedQuery) : null);
+  if (offsetSeconds === null) return null;
+
+  const chainHint = inferChain(query, context);
+  const resolved = resolveSubject(query, context, chainHint !== chain ? chainHint : undefined);
+  if (!resolved) return null;
+
+  return buildTemporalIntent(resolved, offsetSeconds, chain);
+}
+
+export function matchTemporalQuery(
+  query: string,
+  chain: string,
+  context?: SessionContext,
+): RpcIntent | null {
+  const offsetSeconds = parseTimeOffsetSeconds(query);
+  if (offsetSeconds === null) return null;
+
+  const resolved = resolveSubject(query, context);
+  if (!resolved) return null;
+
+  return buildTemporalIntent(resolved, offsetSeconds, chain);
 }
 
 type EthBlockHeader = {

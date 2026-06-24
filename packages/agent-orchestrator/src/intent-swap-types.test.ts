@@ -1,9 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
   extractSigningPayloads,
+  isInsufficientAllowanceError,
+  isSimulationTransferFailedError,
+  isConfirmationRequiredError,
   isQuoteExpiredError,
+  isSigningPayloadUnavailableError,
+  isOneinchOrderBuildError,
   normalizeSigningInstructions,
   validatePermitAgainstQuote,
+  validateOrderAgainstQuote,
+  OrderQuoteMismatchError,
 } from "./intent-swap-types.js";
 
 describe("extractSigningPayloads", () => {
@@ -105,6 +112,57 @@ describe("normalizeSigningInstructions", () => {
   });
 });
 
+describe("isOneinchOrderBuildError", () => {
+  it("detects feeReceiver errors", () => {
+    expect(
+      isOneinchOrderBuildError(
+        'oneinch_fusion: Order build failed: {"code":"FEE_RECEIVER_REQUIRED","description":"feeReceiver is required when fee is provided"}',
+      ),
+    ).toBe(true);
+  });
+});
+
+describe("isConfirmationRequiredError", () => {
+  it("detects Intent MCP confirmation requirement", () => {
+    expect(
+      isConfirmationRequiredError(
+        "Wallet confirmation signature required — call POST /v1/quotes/confirmation",
+      ),
+    ).toBe(true);
+    expect(isConfirmationRequiredError("CONFIRMATION_REQUIRED")).toBe(true);
+    expect(isConfirmationRequiredError("network error")).toBe(false);
+  });
+});
+
+describe("isSigningPayloadUnavailableError", () => {
+  it("detects signing payload errors", () => {
+    expect(isSigningPayloadUnavailableError("SIGNING_PAYLOAD_UNAVAILABLE: foo")).toBe(true);
+    expect(isSigningPayloadUnavailableError("network error")).toBe(false);
+  });
+});
+
+describe("isInsufficientAllowanceError", () => {
+  it("detects Uniswap allowance validation failures", () => {
+    expect(
+      isInsufficientAllowanceError(
+        'Order submit failed: {"errorCode":"InputValidationError","detail":"Insufficient allowance"}',
+      ),
+    ).toBe(true);
+    expect(isInsufficientAllowanceError("network error")).toBe(false);
+  });
+});
+
+describe("isSimulationTransferFailedError", () => {
+  it("detects router transferFrom simulation reverts", () => {
+    expect(
+      isSimulationTransferFailedError(
+        "Simulation failed: Simulation reverted: EstimateGasExecutionError: Execution reverted with reason: TRANSFER_FROM_FAILED.",
+      ),
+    ).toBe(true);
+    expect(isSimulationTransferFailedError("network error")).toBe(false);
+  });
+});
+
 describe("isQuoteExpiredError", () => {
   it("detects expired quote messages", () => {
     expect(isQuoteExpiredError("Quote q_abc has expired. Request a new quote.")).toBe(true);
@@ -169,5 +227,80 @@ describe("validatePermitAgainstQuote", () => {
         },
       ),
     ).toThrow(/but this quote is for/i);
+  });
+});
+
+describe("validateOrderAgainstQuote", () => {
+  const expected = {
+    tokenInAddress: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+    tokenOutAddress: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+    amountInAtomic: "2000000",
+    chainId: 1,
+  };
+
+  it("accepts 1inch Order matching quote", () => {
+    expect(() =>
+      validateOrderAgainstQuote(
+        {
+          signingPayloads: [
+            {
+              domain: { name: "1inch Aggregation Router", chainId: 1 },
+              types: {},
+              primaryType: "Order",
+              message: {
+                makerAsset: expected.tokenInAddress,
+                takerAsset: expected.tokenOutAddress,
+                makingAmount: expected.amountInAtomic,
+              },
+            },
+          ],
+        },
+        expected,
+      ),
+    ).not.toThrow();
+  });
+
+  it("rejects CoW Order with wrong sellAmount", () => {
+    expect(() =>
+      validateOrderAgainstQuote(
+        {
+          signingPayloads: [
+            {
+              domain: { name: "Gnosis Protocol", chainId: 1 },
+              types: {},
+              primaryType: "Order",
+              message: {
+                sellToken: expected.tokenInAddress,
+                buyToken: expected.tokenOutAddress,
+                sellAmount: "9999999",
+              },
+            },
+          ],
+        },
+        expected,
+      ),
+    ).toThrow(OrderQuoteMismatchError);
+  });
+
+  it("rejects Order on wrong chain", () => {
+    expect(() =>
+      validateOrderAgainstQuote(
+        {
+          signingPayloads: [
+            {
+              domain: { chainId: 8453 },
+              types: {},
+              primaryType: "Order",
+              message: {
+                sellToken: expected.tokenInAddress,
+                buyToken: expected.tokenOutAddress,
+                sellAmount: expected.amountInAtomic,
+              },
+            },
+          ],
+        },
+        expected,
+      ),
+    ).toThrow(/chainId 8453/i);
   });
 });

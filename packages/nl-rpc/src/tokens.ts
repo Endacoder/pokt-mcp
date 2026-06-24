@@ -22,6 +22,10 @@ export const KNOWN_TOKENS: Record<string, Record<string, { address: string; deci
   },
 };
 
+export function resolveKnownTokenAddress(chain: string, symbol: string): string | undefined {
+  return KNOWN_TOKENS[chain]?.[symbol.toUpperCase()]?.address;
+}
+
 export function formatKnownTokensForPrompt(): string {
   const lines: string[] = [];
   for (const [chain, tokens] of Object.entries(KNOWN_TOKENS)) {

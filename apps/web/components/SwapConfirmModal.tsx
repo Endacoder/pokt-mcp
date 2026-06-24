@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   prepareSwap,
   fetchQuoteConfirmation,
   submitSwap,
+  syncPermitSwap,
   pollSwapStatus,
   isSwapCompleted,
   isSwapFailed,
@@ -16,11 +17,21 @@ import {
   type SwapQuoteDisplay,
   type SigningInstructions,
 } from "../lib/swap-api";
-import { hasPendingApprovalTransaction, signQuoteConfirmationMessage, signSwapInstructions, assertPermit2SignatureMatchesWallet, lastPermit2PayloadFromInstructions } from "../lib/swap-sign";
+import {
+  hasPendingApprovalTransaction,
+  resolveSwapSigningStep,
+  signQuoteConfirmationMessage,
+  signSwapSignStep,
+  resolvePermit2SubmitWallet,
+  lastPermit2PayloadFromInstructions,
+  type SwapSigningStepKind,
+} from "../lib/swap-sign";
 import { getAddress } from "viem";
 import { ensureWalletNetworkForSwap, pocketRpcSetupHint } from "../lib/wallet-network";
-import { refreshConnectedWallet } from "../lib/wallet-connect";
+import { listPermittedAccounts, refreshConnectedWallet } from "../lib/wallet-connect";
+import { resolveWalletProvider } from "../lib/wallet-provider";
 import { isQuoteExpired } from "../lib/swap-expiry";
+import { quoteRequiresGasAck } from "@pokt-mcp/shared/swap-gas-routing";
 
 type Phase = "confirm" | "confirm-requote" | "preparing" | "signing" | "submitting" | "settling" | "done" | "error";
 
@@ -46,7 +57,8 @@ export function SwapConfirmModal({
   const [phase, setPhase] = useState<Phase>("confirm");
   const [error, setError] = useState<string>();
   const [txHash, setTxHash] = useState<string>();
-  const [signStep, setSignStep] = useState(1);
+  const [signStepKind, setSignStepKind] = useState<SwapSigningStepKind | "quote_confirmation">("quote_confirmation");
+  const [signStep, setSignStep] = useState(0);
   const [needsApproval, setNeedsApproval] = useState(false);
   const [finalStatus, setFinalStatus] = useState<string>();
   const [requoteNote, setRequoteNote] = useState<string>();
@@ -55,20 +67,39 @@ export function SwapConfirmModal({
   const [requoteExecutionMode, setRequoteExecutionMode] = useState<string | undefined>(
     display.executionMode,
   );
+  const [permittedAccounts, setPermittedAccounts] = useState<string[]>([]);
   const quoteExpired = isQuoteExpired(activeExpiresAt);
   const canRetry =
     phase === "confirm" || phase === "confirm-requote" || (phase === "error" && error !== "expired");
   const needsGasRpc =
     requoteExecutionMode === "gas" ||
+    display.executionMode === "gas" ||
     (requoteExecutionMode !== "gasless" && display.tokenIn !== "ETH");
+  const requiresGasAck = quoteRequiresGasAck({
+    executionMode: requoteExecutionMode ?? display.executionMode,
+    route: display.route,
+    routeType: display.routeType,
+    gasless: display.gasless,
+    gasEstimateUsd: display.gasEstimateUsd,
+  });
 
   function setSwapPhase(next: Phase) {
     setPhase(next);
     onPhaseChange?.(next);
   }
 
+  useEffect(() => {
+    const provider = resolveWalletProvider();
+    if (!provider || !walletAddress) {
+      setPermittedAccounts([]);
+      return;
+    }
+    void listPermittedAccounts(provider).then(setPermittedAccounts).catch(() => setPermittedAccounts([]));
+  }, [walletAddress]);
+
   async function handleConfirm() {
-    if (!walletAddress || !window.ethereum) {
+    const provider = resolveWalletProvider();
+    if (!walletAddress || !provider) {
       setError("Connect your wallet before confirming a swap.");
       setSwapPhase("error");
       return;
@@ -92,7 +123,7 @@ export function SwapConfirmModal({
         flowAccountChanged = true;
       }
     };
-    window.ethereum?.on?.("accountsChanged", onFlowAccountsChanged);
+    provider.on?.("accountsChanged", onFlowAccountsChanged);
 
     function assertFlowWalletUnchanged(): void {
       if (flowAccountChanged) {
@@ -111,8 +142,8 @@ export function SwapConfirmModal({
         getAddress(providerAddress) !== getAddress(walletAddress)
       ) {
         throw new SwapApiError(
-          `MetaMask is on ${getAddress(providerAddress)} but this quote is for ${getAddress(walletAddress)}. ` +
-            "The app updated your connected address — request a new swap quote for the active account.",
+          `MetaMask is on ${getAddress(providerAddress)} but your connected wallet is ${getAddress(walletAddress)}. ` +
+            "Switch MetaMask to your connected wallet before confirming, or Disconnect and Connect Wallet again.",
           "WALLET_ACCOUNT_MISMATCH",
         );
       }
@@ -124,14 +155,14 @@ export function SwapConfirmModal({
       if (chainId != null) {
         const hexChain = `0x${chainId.toString(16)}`;
         try {
-          await window.ethereum.request({
+          await provider.request({
             method: "wallet_switchEthereumChain",
             params: [{ chainId: hexChain }],
           });
         } catch {
           /* user may already be on chain */
         }
-        await ensureWalletNetworkForSwap(window.ethereum, chainId);
+        await ensureWalletNetworkForSwap(provider, chainId);
       }
 
       const expectedQuote =
@@ -181,14 +212,16 @@ export function SwapConfirmModal({
           tokenOut: display.tokenOutAddress,
           amount: display.amountInAtomic,
           slippageBps: 300,
-          executionMode: executionModeForRequote as "any" | "gasless" | "gas",
+          executionMode:
+            executionModeForRequote === "gasless" ? ("gasless" as const) : ("any" as const),
         };
       }
 
-      // Auto-retry when prepare swaps to a fresh quote (e.g. gas simulation → gasless).
+      let permitSigner: string | undefined;
       const maxPrepareAttempts = 3;
       for (let prepareAttempt = 0; prepareAttempt < maxPrepareAttempts; prepareAttempt++) {
         const confirmation = await fetchQuoteConfirmation(apiUrl, quoteIdForPrepare, activeWallet);
+        setSignStepKind("quote_confirmation");
         setSignStep(0);
         setSwapPhase("signing");
         const confirmationSignature = await signQuoteConfirmationMessage(
@@ -205,6 +238,14 @@ export function SwapConfirmModal({
           expectedQuote,
           buildRequoteParams(),
           confirmationSignature,
+          {
+            acknowledgeUserPaidGas: requiresGasAck,
+            quoteExecutionMode: requoteExecutionMode ?? display.executionMode,
+            quoteRoute: display.route,
+            quoteRouteType: display.routeType,
+            quoteGasEstimateUsd: display.gasEstimateUsd,
+            quoteGasless: display.gasless,
+          },
         );
         if (prepared.requoteApplied && prepared.freshQuoteId) {
           quoteIdForPrepare = prepared.freshQuoteId;
@@ -236,14 +277,22 @@ export function SwapConfirmModal({
       }
 
       for (let step = 0; step < maxSignSteps; step++) {
-        setNeedsApproval(hasPendingApprovalTransaction(instructions, expectedPermit));
+        const nextStep = resolveSwapSigningStep(instructions, expectedQuote?.tokenInAddress);
+        setSignStepKind(nextStep);
+        setNeedsApproval(nextStep === "token_approval");
         setSignStep(step + 1);
         setSwapPhase("signing");
         assertFlowWalletUnchanged();
-        await assertSinglePermittedAccount(activeWallet);
-        const signature = await signSwapInstructions(
+        const signingWallet =
+          nextStep === "transaction" && permitSigner ? permitSigner : activeWallet;
+        if (nextStep === "transaction" && permitSigner) {
+          await assertSinglePermittedAccount(permitSigner);
+        } else {
+          await assertSinglePermittedAccount(activeWallet);
+        }
+        const signResult = await signSwapSignStep(
           instructions,
-          activeWallet,
+          signingWallet,
           expectedQuote,
           chainId ?? display.chainId,
           apiUrl,
@@ -251,29 +300,86 @@ export function SwapConfirmModal({
 
         setSwapPhase("submitting");
         assertFlowWalletUnchanged();
-        const liveWallet = await assertSinglePermittedAccount(activeWallet);
-        const permitPayload = lastPermit2PayloadFromInstructions(instructions);
-        const submitWalletAddress =
-          permitPayload != null
-            ? await assertPermit2SignatureMatchesWallet(permitPayload, signature, liveWallet)
-            : liveWallet;
+        const liveWallet = permitSigner ?? (await assertSinglePermittedAccount(activeWallet));
+        const submitValue = signResult.value;
+        const submitTxHash = signResult.kind === "tx_hash" ? signResult.value : undefined;
+        let submitWalletAddress = liveWallet;
         let result;
-        try {
-          result = await submitSwap(apiUrl, intentId, signature, submitWalletAddress, metadata);
-        } catch (submitErr) {
-          if (isInsufficientAllowanceError(submitErr) && intentId && step < maxSignSteps - 1) {
-            // Re-run signing; ensurePermit2Allowance will prompt for approve if still needed.
-            instructions =
-              (await fetchSwapInstructions(apiUrl, intentId)).signingInstructions ?? instructions;
-            setNeedsApproval(hasPendingApprovalTransaction(instructions, expectedPermit));
-            continue;
+        if (signResult.kind === "signature") {
+          const permitPayload = lastPermit2PayloadFromInstructions(instructions);
+          if (permitPayload != null) {
+            const resolved = await resolvePermit2SubmitWallet(
+              permitPayload,
+              signResult.value,
+              activeWallet,
+              signResult.signedTypedData,
+            );
+            submitWalletAddress = resolved.submitWallet;
+            if (resolved.corrected) {
+              const syncResult = await syncPermitSwap(
+                apiUrl,
+                intentId,
+                signResult.value,
+                resolved.submitWallet,
+              );
+              permitSigner = syncResult.permitSigner ?? resolved.recoveredSigner;
+              if (syncResult.pendingMoreSignatures) {
+                instructions =
+                  (await fetchSwapInstructions(apiUrl, intentId)).signingInstructions ?? instructions;
+                continue;
+              }
+              result = {
+                intentId: syncResult.intentId,
+                status: syncResult.status,
+                txHash: syncResult.txHash,
+                pendingMoreSignatures: false,
+              };
+            }
           }
-          throw submitErr;
+        }
+        if (!result) {
+          try {
+            result = await submitSwap(
+              apiUrl,
+              intentId,
+              submitValue,
+              submitWalletAddress,
+              metadata,
+              submitTxHash,
+            );
+          } catch (submitErr) {
+            if (isInsufficientAllowanceError(submitErr) && intentId && step < maxSignSteps - 1) {
+              instructions =
+                (await fetchSwapInstructions(apiUrl, intentId)).signingInstructions ?? instructions;
+              setNeedsApproval(hasPendingApprovalTransaction(instructions, expectedPermit));
+              continue;
+            }
+            throw submitErr;
+          }
         }
         intentId = result.intentId;
 
         if (result.pendingMoreSignatures && result.signingInstructions) {
           instructions = result.signingInstructions;
+          continue;
+        }
+
+        if (signResult.kind === "tx_hash" && nextStep === "token_approval") {
+          const refreshed =
+            result.signingInstructions ??
+            (await fetchSwapInstructions(apiUrl, intentId)).signingInstructions;
+          try {
+            const followUp = resolveSwapSigningStep(refreshed, expectedQuote?.tokenInAddress);
+            if (followUp === "permit2" || followUp === "typed_data" || followUp === "transaction") {
+              instructions = refreshed;
+              continue;
+            }
+          } catch {
+            /* no further wallet steps */
+          }
+        }
+
+        if (result.pendingMoreSignatures) {
           continue;
         }
 
@@ -319,7 +425,7 @@ export function SwapConfirmModal({
       } else if (err instanceof SwapApiError && err.code === "SIMULATION_FAILED") {
         setError(
           /TRANSFER_FROM_FAILED/i.test(err.message)
-            ? "This swap couldn't be simulated — the router couldn't pull your input token. Confirm your wallet holds enough of the token you're selling. If you chose Gas mode, try Gasless or Best price in Settings → Swap execution, then request a fresh quote."
+            ? "This swap couldn't be simulated — the router couldn't pull your input token. Confirm your wallet holds enough of the token you're selling. Try Gasless or Best price in Settings → Swap execution, then request a fresh quote."
             : err.message,
         );
       } else if (err instanceof SwapApiError && err.code === "CONFIRMATION_REQUIRED") {
@@ -328,7 +434,7 @@ export function SwapConfirmModal({
         );
       } else if (err instanceof SwapApiError && err.code === "SIGNING_PAYLOAD_UNAVAILABLE") {
         setError(
-          "Could not build wallet signing data for this route. Close this dialog, request a new quote, and confirm within 60 seconds. If it persists, try Best price or Gas execution mode.",
+          "Could not build wallet signing data for this route. Close this dialog, request a new quote, and confirm within 60 seconds. If it persists, try Best price or Gasless execution mode.",
         );
       } else if (err instanceof SwapApiError && err.code === "QUOTE_EXPIRED") {
         setError("expired");
@@ -382,7 +488,7 @@ export function SwapConfirmModal({
       }
       setSwapPhase("error");
     } finally {
-      window.ethereum?.removeListener?.("accountsChanged", onFlowAccountsChanged);
+      provider.removeListener?.("accountsChanged", onFlowAccountsChanged);
     }
   }
 
@@ -403,19 +509,52 @@ export function SwapConfirmModal({
           ~{display.amountOut} {display.tokenOut}
         </p>
 
+        {walletAddress && (phase === "confirm" || phase === "confirm-requote") && (
+          <div className="mt-3 rounded-lg border border-pocket-border bg-pocket-elevated/40 px-3 py-2 text-xs text-pocket-muted">
+            <p>
+              <span className="font-medium text-pocket-foreground">Connected wallet</span>{" "}
+              <span className="font-mono">{walletAddress}</span>
+            </p>
+            <p className="mt-1">
+              All signatures must come from this account only. In each MetaMask popup, confirm the account
+              matches before you approve.
+            </p>
+            {permittedAccounts.length > 1 && (
+              <p className="mt-1 text-amber-800 dark:text-amber-200">
+                MetaMask has {permittedAccounts.length} accounts authorized ({permittedAccounts
+                  .map((a) => `${a.slice(0, 6)}…${a.slice(-4)}`)
+                  .join(", ")}
+                ). Disconnect this site in MetaMask and reconnect with only{" "}
+                {walletAddress.slice(0, 6)}…{walletAddress.slice(-4)}.
+              </p>
+            )}
+          </div>
+        )}
+
         {phase === "confirm" && !quoteExpired && (
           <>
             <p className="mt-3 text-sm text-pocket-muted">
+              Typical gas swap: (1) quote authorization signature, (2) one USDC approval for exactly this
+              swap amount to Permit2, (3) Permit2 EIP-712 signature. Use Settings → Gasless to skip on-chain
+              approvals when available.
+            </p>
+            <p className="mt-2 text-sm text-pocket-muted">
               Step 1: your wallet will ask you to sign a short quote authorization (no gas). Then you may approve and sign the swap.
             </p>
-            {needsGasRpc && (
+            {requiresGasAck && (
               <p className="mt-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-900 dark:text-amber-100">
-                Gas mode uses Uniswap on-chain. Your wallet may ask for two steps: approve {display.tokenIn} for
-                Permit2, then confirm the swap. If MetaMask shows only an Uniswap execute that is likely to fail,
-                cancel and request a new quote.
+                This route requires you to pay network gas. You will confirm the swap in your wallet and
+                may need to approve {display.tokenIn} for Permit2 first.
                 {" "}
                 {pocketRpcSetupHint(chainId ?? display.chainId)}
-                {" "}If MetaMask prompts to update the network, accept so transactions use Pocket RPC.
+              </p>
+            )}
+            {needsGasRpc && !requiresGasAck && (
+              <p className="mt-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-900 dark:text-amber-100">
+                This swap may use an on-chain route. Your wallet may ask for two steps: approve {display.tokenIn} for
+                Permit2, then confirm the swap.
+                {" "}
+                {pocketRpcSetupHint(chainId ?? display.chainId)}
               </p>
             )}
           </>
@@ -448,27 +587,51 @@ export function SwapConfirmModal({
             )}
           </>
         )}
-        {phase === "signing" && signStep === 0 && (
+        {phase === "signing" && signStepKind === "quote_confirmation" && (
           <p className="mt-3 text-sm text-pocket-accent">
-            Check your wallet to authorize this quote (personal_sign — does not execute a swap).
+            Step 1 — Check your wallet to authorize this quote (personal_sign — does not execute a swap).
           </p>
         )}
-        {phase === "signing" && signStep > 0 && (
+        {phase === "signing" && signStepKind === "token_approval" && (
+          <p className="mt-3 text-sm text-pocket-accent">
+            Step {signStep} — Confirm the ERC20 approval transaction in MetaMask (pays gas). This is not the Permit2 signature.
+          </p>
+        )}
+        {phase === "signing" && (signStepKind === "permit2" || signStepKind === "typed_data") && (
+          <p className="mt-3 text-sm text-pocket-accent">
+            Step {signStep} — Sign the account verification message, then Permit2 typed data (no gas).
+            Use the same account (
+            <span className="font-mono">{walletAddress?.slice(0, 6)}…{walletAddress?.slice(-4)}</span>
+            ) for both prompts. MetaMask may only ask to reconnect if multiple accounts are authorized.
+          </p>
+        )}
+        {phase === "signing" && signStepKind === "transaction" && (
+          <p className="mt-3 text-sm text-pocket-accent">
+            Step {signStep} — Confirm the swap transaction in MetaMask.
+          </p>
+        )}
+        {phase === "signing" &&
+          signStepKind !== "quote_confirmation" &&
+          signStepKind !== "token_approval" &&
+          signStepKind !== "permit2" &&
+          signStepKind !== "typed_data" &&
+          signStepKind !== "transaction" &&
+          signStep > 0 && (
           <p className="mt-3 text-sm text-pocket-accent">
             {needsApproval
               ? needsGasRpc
-                ? "Check your wallet — MetaMask may batch approve + swap in one confirmation (EIP-5792), or prompt separately."
+                ? "Approve exactly this swap's USDC amount for Permit2 (not unlimited), then sign Permit2."
                 : "Step 1: approve the token for swapping in your wallet (one-time Permit2 approval). Then you'll sign the swap."
               : signStep > 1
-                ? `Step ${signStep}: additional signature required — check your wallet (approval → trade, or swap transaction).`
+                ? `Step ${signStep}: additional signature required — check your wallet.`
                 : "Check your wallet to sign the swap…"}
-            {walletAddress && signStep > 0 && (
-              <span className="mt-2 block text-xs text-pocket-muted">
-                In the MetaMask Permit2 dialog, confirm the account is{" "}
-                <span className="font-mono">{walletAddress.slice(0, 6)}…{walletAddress.slice(-4)}</span>{" "}
-                (use the account dropdown in the popup if needed).
-              </span>
-            )}
+          </p>
+        )}
+        {phase === "signing" && signStepKind !== "quote_confirmation" && walletAddress && (
+          <p className="mt-2 text-xs text-pocket-muted">
+            Only sign if the account shown is{" "}
+            <span className="font-mono">{walletAddress.slice(0, 6)}…{walletAddress.slice(-4)}</span>
+            {" "}— cancel and reconnect if MetaMask shows a different account.
           </p>
         )}
         {phase === "submitting" && (

@@ -32,10 +32,10 @@ export type ChatRequest = {
   sessionId: string;
   history?: ChatHistoryMessage[];
   connectedAddress?: string;
-  swapExecutionMode?: "any" | "gasless" | "gas";
+  swapExecutionMode?: "any" | "gasless";
 };
 
-export type AgentEventType = "token" | "tool" | "status" | "result" | "error" | "done";
+export type AgentEventType = "token" | "reasoning" | "tool" | "status" | "result" | "error" | "done";
 
 export type ParsedSseEvent = {
   event: AgentEventType;
@@ -200,6 +200,33 @@ export async function recordSubmittedTransaction(
     const json = (await res.json().catch(() => ({}))) as { error?: string };
     throw new Error(json.error ?? `Failed to record transaction (${res.status})`);
   }
+}
+
+export async function verifySubmittedTransaction(
+  apiUrl: string,
+  body: { chain: string; txHash: string; timeoutMs?: number },
+): Promise<{ found: boolean; pending: boolean; waitedMs: number; chainName?: string }> {
+  const res = await apiFetch(apiUrl, "/wallet/tx/verify", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const json = (await res.json()) as {
+    found?: boolean;
+    pending?: boolean;
+    waitedMs?: number;
+    chainName?: string;
+    error?: string;
+  };
+  if (!res.ok) {
+    throw new Error(json.error ?? `Verify failed (${res.status})`);
+  }
+  return {
+    found: Boolean(json.found),
+    pending: Boolean(json.pending),
+    waitedMs: json.waitedMs ?? 0,
+    chainName: json.chainName,
+  };
 }
 
 export type McpEnvStatus = {

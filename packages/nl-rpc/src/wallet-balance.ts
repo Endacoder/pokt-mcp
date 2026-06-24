@@ -1,15 +1,11 @@
 import { listChains, resolveChain } from "@pokt-mcp/pocket-client";
 import type { RpcIntent, SessionContext } from "@pokt-mcp/shared";
-import { inferChain, wantsBalance, wantsMultiChainWalletBalance, wantsMyWallet } from "./patterns.js";
+import { inferChain, isWalletBalanceQuery, wantsMultiChainWalletBalance, wantsMyPortfolio } from "./patterns.js";
 import { KNOWN_TOKENS } from "./tokens.js";
 
 const BALANCE_OF_SELECTOR = "0x70a08231";
 
-export { wantsMyWallet } from "./patterns.js";
-
-export function isWalletBalanceQuery(query: string): boolean {
-  return wantsMyWallet(query) && wantsBalance(query);
-}
+export { isWalletBalanceQuery, wantsMyWallet } from "./patterns.js";
 
 export function matchWalletBalanceQuery(
   query: string,
@@ -31,7 +27,9 @@ export function matchWalletBalanceQuery(
       chain: inferChain(query, context),
       method: "__wallet_balances_multi__",
       params: [address],
-      humanSummary: `Wallet balances for connected address across Pocket mainnets`,
+      humanSummary: wantsMyPortfolio(query)
+        ? `Portfolio for connected address across Pocket mainnets`
+        : `Wallet balances for connected address across Pocket mainnets`,
       riskLevel: "none",
     };
   }
@@ -43,7 +41,9 @@ export function matchWalletBalanceQuery(
     chain,
     method: "__wallet_balances__",
     params: [chain, address],
-    humanSummary: `Wallet balances for connected address on ${chain}`,
+    humanSummary: wantsMyPortfolio(query)
+      ? `Portfolio for connected address on ${chain}`
+      : `Wallet balances for connected address on ${chain}`,
     riskLevel: "none",
   };
 }

@@ -5,6 +5,7 @@ import {
   formatConvertedAmount,
   formatGasAssessmentMessage,
   formatInterpretationFallback,
+  formatPriceChange,
   formatPriceChange24h,
   formatSpotPrice,
   formatMultiWalletBalances,
@@ -12,10 +13,24 @@ import {
   formatTxHistory,
   formatPaymentFromMe,
   formatCompareGas,
+  formatGasFiat,
+  formatCompareBalances,
+  formatCosmosBalances,
+  formatAccountAudit,
   formatPortfolioConversion,
   formatTransferEvents,
   formatTxNotFoundMessage,
+  formatTxPendingMessage,
   formatMarketAnalyticsUnsupported,
+  formatAssetTradingVolume,
+  formatWalletHealth,
+  formatTokenResearch,
+  formatContractExplainer,
+  formatGovernance,
+  formatScamScan,
+  formatDefiPositions,
+  formatOperatorStatus,
+  formatGetChain,
   gweiFromHex,
   interpretQueryResult,
   nativeBalanceToWeiHex,
@@ -29,7 +44,7 @@ import {
   type MultiWalletBalancesResult,
 } from "@pokt-mcp/nl-rpc";
 import { createPocketClient, type PocketClient } from "@pokt-mcp/pocket-client";
-import type { RpcIntent, SessionContext } from "@pokt-mcp/shared";
+import type { ChatHistoryMessage, RpcIntent, SessionContext } from "@pokt-mcp/shared";
 import { isAgentLoopEnabled, loadIntentMcpConfig, loadLlmConfig } from "@pokt-mcp/shared";
 import { runIntentSwapRoute } from "./intent-swap.js";
 import { runAgentLoop } from "./agent-loop.js";
@@ -40,12 +55,16 @@ import {
 } from "./complexity.js";
 import { isSwapStatusQuery, runIntentSwapStatusRoute } from "./intent-swap-status.js";
 import { isSendStatusQuery, runSendStatusRoute } from "./send-status.js";
+import { yieldStatus } from "./status-events.js";
 import type { AgentEvent } from "./types.js";
+import { runWithHeartbeat, yieldTextChunks } from "./stream-utils.js";
+import { runWithReasoningStream } from "./reasoning-stream.js";
 
 export type QueryRoute = "intent" | "agent" | "intent-swap" | "intent-swap-status" | "send-status";
 
 export interface RouteQueryInput {
   query: string;
+  history?: ChatHistoryMessage[];
   sessionContext: SessionContext;
   pocket?: PocketClient;
   onSessionUpdate?: (patch: Partial<SessionContext>) => void;
@@ -100,6 +119,48 @@ function rememberFromIntent(
     }
   }
 
+  if (intent.method === "__price_change__" || intent.method === "__price_change_24h__") {
+    const [coingeckoId, symbol, period] = intent.params as [string, string, string?];
+    onSessionUpdate({
+      lastMarketQuery: {
+        coingeckoId,
+        symbol,
+        kind: "priceChange",
+        period: (period as "24h" | "7d" | "14d" | "30d" | "1y" | undefined) ?? "24h",
+      },
+    });
+  }
+
+  if (intent.method === "__spot_price__") {
+    const [coingeckoId, symbol] = intent.params as [string, string];
+    onSessionUpdate({
+      lastMarketQuery: {
+        coingeckoId,
+        symbol,
+        kind: "spotPrice",
+      },
+    });
+  }
+
+  if (intent.method === "__transfer_events__") {
+    const [chain, symbol, walletAddress, blockRange] = intent.params as [
+      string,
+      string,
+      string,
+      number,
+    ];
+    const result = output as import("@pokt-mcp/nl-rpc").TransferEventsResult;
+    onSessionUpdate({
+      lastTransferQuery: {
+        chain,
+        tokenSymbol: symbol,
+        walletAddress,
+        blockRange,
+        hadEmptyResult: result.events.length === 0,
+      },
+    });
+  }
+
   const subject = querySubject(intent.method);
   if (subject) {
     onSessionUpdate({
@@ -119,20 +180,25 @@ async function* runSingleIntentRoute(
 ): AsyncGenerator<AgentEvent> {
   const nlRpc = createNlRpcEngine();
 
-  yield {
-    type: "status",
-    data: { message: "Parsing query…", phase: "parse" },
-  };
+  yield* yieldStatus("Parsing query…", "parse");
 
-  const parsed = await nlRpc.parse(input.query, input.sessionContext);
+  const parseGen = runWithReasoningStream((stream) =>
+    nlRpc.parse(input.query, input.sessionContext, input.history, stream),
+  );
+  let parsed: Awaited<ReturnType<typeof nlRpc.parse>>;
+  while (true) {
+    const step = await parseGen.next();
+    if (step.done) {
+      parsed = step.value;
+      break;
+    }
+    yield step.value;
+  }
 
-  yield {
-    type: "status",
-    data: {
-      message: parsed.intent.humanSummary ?? `Executing ${parsed.intent.method} on ${parsed.intent.chain}`,
-      phase: "execute",
-    },
-  };
+  yield* yieldStatus(
+    parsed.intent.humanSummary ?? `Executing ${parsed.intent.method} on ${parsed.intent.chain}`,
+    "execute",
+  );
 
   if (parsed.requiresConfirmation) {
     yield {
@@ -150,22 +216,44 @@ async function* runSingleIntentRoute(
   }
 
   const start = Date.now();
-  let output = await executeIntent(pocket, parsed.intent);
+  let output: unknown;
+  const heartbeat = runWithHeartbeat(
+    parsed.intent.humanSummary ?? `Running ${parsed.intent.method}`,
+    "execute",
+    () => executeIntent(pocket, parsed.intent),
+  );
+  while (true) {
+    const step = await heartbeat.next();
+    if (step.done) {
+      output = step.value;
+      break;
+    }
+    yield step.value;
+  }
   output = enrichOutputWithAssessment(parsed.intent, output);
   rememberFromIntent(parsed.intent, output, input.onSessionUpdate);
 
   let summary = formatResultSummary(parsed.intent, output, input.query);
   let interpreted = false;
   if (needsResultInterpretation(input.query, parsed.intent)) {
-    yield {
-      type: "status",
-      data: { message: "Interpreting result…", phase: "interpret" },
-    };
+    yield* yieldStatus("Interpreting result…", "interpret");
     const llmConfig = loadLlmConfig();
-    const wrapped =
-      llmConfig?.enabled
-        ? await interpretQueryResult(input.query, parsed.intent, output, llmConfig)
-        : formatInterpretationFallback(input.query, parsed.intent, output);
+    let wrapped: string | null;
+    if (llmConfig?.enabled) {
+      const interpretGen = runWithReasoningStream((stream) =>
+        interpretQueryResult(input.query, parsed.intent, output, llmConfig, stream),
+      );
+      while (true) {
+        const step = await interpretGen.next();
+        if (step.done) {
+          wrapped = step.value;
+          break;
+        }
+        yield step.value;
+      }
+    } else {
+      wrapped = formatInterpretationFallback(input.query, parsed.intent, output);
+    }
     if (wrapped) {
       summary = `\n${wrapped}`;
       interpreted = true;
@@ -192,13 +280,14 @@ async function* runSingleIntentRoute(
       latencyMs: Date.now() - start,
     },
   };
-  yield { type: "token", data: { text: summary } };
+  yield* yieldTextChunks(summary);
   yield { type: "done", data: {} };
 }
 
 async function* runAgentRoute(input: RouteQueryInput, pocket: PocketClient): AsyncGenerator<AgentEvent> {
   yield* runAgentLoop({
     query: input.query,
+    history: input.history,
     sessionContext: input.sessionContext,
     pocket,
   });
@@ -208,17 +297,14 @@ export async function* routeQuery(input: RouteQueryInput): AsyncGenerator<AgentE
   const pocket = input.pocket ?? createPocketClient();
   const agentEnabled = isAgentLoopEnabled();
 
-  yield {
-    type: "status",
-    data: { message: "Routing query…", phase: "route" },
-  };
+  yield* yieldStatus("Routing query…", "route");
 
-  if (isSendStatusQuery(input.query)) {
+  if (isSendStatusQuery(input.query, input.sessionContext)) {
     yield* runSendStatusRoute(input.sessionContext, pocket, input.onSessionUpdate);
     return;
   }
 
-  if (isSwapStatusQuery(input.query)) {
+  if (isSwapStatusQuery(input.query, input.sessionContext)) {
     const intentMcp = loadIntentMcpConfig();
     if (intentMcp) {
       yield* runIntentSwapStatusRoute(input.sessionContext, intentMcp, input.onSessionUpdate);
@@ -269,7 +355,36 @@ export async function* routeQuery(input: RouteQueryInput): AsyncGenerator<AgentE
       yield { type: "done", data: {} };
       return;
     }
+    if (isTransferContextRequiredError(err)) {
+      yield {
+        type: "error",
+        data: {
+          message: err instanceof Error ? err.message.replace(/^TRANSFER_CONTEXT_REQUIRED:\s*/, "") : String(err),
+          code: "TRANSFER_CONTEXT_REQUIRED",
+        },
+      };
+      yield { type: "done", data: {} };
+      return;
+    }
     if (agentEnabled && (isParseFailedError(err) || isExecutionFailedError(err))) {
+      if (isSwapQuery(input.query)) {
+        const intentMcp = loadIntentMcpConfig();
+        if (intentMcp) {
+          yield* runIntentSwapRoute(input.query, input.sessionContext, intentMcp);
+          return;
+        }
+        yield {
+          type: "error",
+          data: {
+            message:
+              "pokt-mcp does not execute token swaps without Intent MCP. Set INTENT_MCP_API_KEY on the API server (uses INTENT_MCP_REMOTE_URL — same as Cursor mcp-remote — by default), or configure intent-mcp in Cursor. See docs/USE_CASES.md#third-party-mcp-integrations-optional",
+            requiresThirdPartySwapMcp: true,
+            thirdPartyExample: "intent-mcp",
+          },
+        };
+        yield { type: "done", data: {} };
+        return;
+      }
       for await (const event of runAgentRoute(input, pocket)) {
         if (event.type === "result") {
           yield {
@@ -290,6 +405,11 @@ export async function* routeQuery(input: RouteQueryInput): AsyncGenerator<AgentE
 function isWalletNotConnectedError(err: unknown): boolean {
   const message = err instanceof Error ? err.message : String(err);
   return message.includes("WALLET_NOT_CONNECTED");
+}
+
+function isTransferContextRequiredError(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return message.includes("TRANSFER_CONTEXT_REQUIRED");
 }
 
 export async function collectRouteQueryResult(input: RouteQueryInput): Promise<{
@@ -403,11 +523,27 @@ function formatResultSummary(intent: RpcIntent, output: unknown, query?: string)
     const hash = typeof intent.params[0] === "string" ? intent.params[0] : "unknown";
     return `\nNo transaction found for ${hash} on ${chain}.`;
   }
+  if (
+    (intent.method === "eth_getTransactionByHash" || intent.method === "eth_getTransactionReceipt") &&
+    (o as { pending?: boolean }).pending
+  ) {
+    const hash = typeof intent.params[0] === "string" ? intent.params[0] : "unknown";
+    return `\n${formatTxPendingMessage(hash, chain)}`;
+  }
   if (intent.method === "__list_chains__" && Array.isArray(o.chains)) {
     return `\n${o.chains.length} Pocket chains available.`;
   }
+  if (intent.method === "__get_chain__" && (o as { chain?: unknown }).chain) {
+    return formatGetChain({ chain: (o as { chain: import("@pokt-mcp/pocket-client").ChainInfo }).chain });
+  }
   if (intent.method === "__market_analytics_unsupported__" && typeof (o as { message?: string }).message === "string") {
     return `\n${formatMarketAnalyticsUnsupported(o as import("@pokt-mcp/nl-rpc").MarketAnalyticsUnsupportedResult)}`;
+  }
+  if (intent.method === "__asset_trading_volume__" && typeof (o as { totalVolumeUsd?: number }).totalVolumeUsd === "number") {
+    return `\n${formatAssetTradingVolume(o as import("@pokt-mcp/nl-rpc").AssetTradingVolumeResult)}`;
+  }
+  if (intent.method === "__unsupported_market_period__" && typeof (o as { message?: string }).message === "string") {
+    return `\n${(o as { message: string }).message}`;
   }
   if (intent.method === "__assistant_info__" && typeof (o as { message?: string }).message === "string") {
     return `\n${(o as { message: string }).message}`;
@@ -435,10 +571,43 @@ function formatResultSummary(intent: RpcIntent, output: unknown, query?: string)
   if (intent.method === "__wallet_portfolio_convert__") {
     return formatPortfolioConversion(output as import("@pokt-mcp/nl-rpc").PortfolioConvertResult);
   }
-  if (intent.method === "__price_change_24h__") {
-    const change = output as import("@pokt-mcp/nl-rpc").PriceChange24hResult;
-    if (change.changePercent24h !== undefined) {
-      return `\n${formatPriceChange24h(change)}`;
+  if (intent.method === "__account_audit__") {
+    return formatAccountAudit(output as import("@pokt-mcp/nl-rpc").AccountAuditResult);
+  }
+  if (intent.method === "__wallet_health__") {
+    return formatWalletHealth(output as import("@pokt-mcp/nl-rpc").WalletHealthResult);
+  }
+  if (intent.method === "__token_research__") {
+    return formatTokenResearch(output as import("@pokt-mcp/nl-rpc").TokenResearchResult);
+  }
+  if (intent.method === "__explain_contract__") {
+    return formatContractExplainer(output as import("@pokt-mcp/nl-rpc").ContractExplainerResult);
+  }
+  if (intent.method === "__governance__") {
+    return formatGovernance(output as import("@pokt-mcp/nl-rpc").GovernanceResult);
+  }
+  if (intent.method === "__scam_scan__") {
+    return formatScamScan(output as import("@pokt-mcp/nl-rpc").ScamScanResult);
+  }
+  if (intent.method === "__defi_positions__") {
+    return formatDefiPositions(output as import("@pokt-mcp/nl-rpc").DefiPositionsResult);
+  }
+  if (intent.method === "__operator_status__") {
+    return formatOperatorStatus(output as import("@pokt-mcp/nl-rpc").OperatorStatusHandlerResult);
+  }
+  if (intent.method === "__price_change_24h__" || intent.method === "__price_change__") {
+    const change = output as import("@pokt-mcp/nl-rpc").PriceChangeResult & {
+      changePercent24h?: number;
+    };
+    const pct = change.changePercent ?? change.changePercent24h;
+    if (pct !== undefined) {
+      return `\n${formatPriceChange({
+        symbol: change.symbol,
+        coingeckoId: change.coingeckoId,
+        changePercent: pct,
+        currentPriceUsd: change.currentPriceUsd,
+        period: change.period ?? "24h",
+      })}`;
     }
   }
   if (intent.method === "__spot_price__") {
@@ -488,6 +657,15 @@ function formatResultSummary(intent: RpcIntent, output: unknown, query?: string)
   }
   if (intent.method === "__compare_gas__") {
     return formatCompareGas(output as import("@pokt-mcp/nl-rpc").CompareGasResult);
+  }
+  if (intent.method === "__gas_fiat__") {
+    return formatGasFiat(output as import("@pokt-mcp/nl-rpc").GasFiatResult);
+  }
+  if (intent.method === "__compare_balances__") {
+    return formatCompareBalances(output as import("@pokt-mcp/nl-rpc").CompareBalancesResult);
+  }
+  if (intent.method === "__cosmos_balance__") {
+    return formatCosmosBalances(output as import("@pokt-mcp/nl-rpc").CosmosBalanceResult);
   }
   if (intent.method === "__erc20_balance__") {
     return formatErc20Balance(output as import("@pokt-mcp/nl-rpc").Erc20BalanceResult);

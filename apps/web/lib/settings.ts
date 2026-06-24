@@ -14,7 +14,7 @@ export type AppSettings = {
 };
 
 const STORAGE_KEY = "pokt-mcp-settings";
-const SETTINGS_VERSION = 2;
+const SETTINGS_VERSION = 3;
 
 type StoredSettings = Partial<AppSettings> & { version?: number };
 
@@ -31,6 +31,10 @@ function migrateSettings(parsed: StoredSettings): AppSettings {
   let merged: AppSettings = { ...DEFAULTS, ...parsed };
   // v2: default swap routing was gasless-only; best-price (any) works for small USDT→ETH.
   if ((parsed.version ?? 1) < 2 && merged.swapExecutionMode === "gasless") {
+    merged = { ...merged, swapExecutionMode: "any" };
+  }
+  // v3: deprecated "gas" quote mode — map to Best price (any).
+  if ((parsed.version ?? 1) < 3 && (merged.swapExecutionMode as string) === "gas") {
     merged = { ...merged, swapExecutionMode: "any" };
   }
   return merged;

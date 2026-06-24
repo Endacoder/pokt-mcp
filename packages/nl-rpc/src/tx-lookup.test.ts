@@ -1,9 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi, afterEach } from "vitest";
 import {
   buildTxNotFoundInfo,
   enrichTxLookupOutput,
   formatTxNotFoundMessage,
   isTxLookupMethod,
+  pollTxLookup,
   wantsTxExplain,
 } from "./tx-lookup.js";
 
@@ -56,5 +57,75 @@ describe("tx-lookup", () => {
   it("detects explain-tx queries", () => {
     expect(wantsTxExplain(`Explain tx ${HASH} on eth`)).toBe(true);
     expect(wantsTxExplain(`Transaction ${HASH} on eth`)).toBe(false);
+  });
+});
+
+describe("pollTxLookup", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("returns immediately when transaction exists", async () => {
+    const tx = { hash: HASH, blockNumber: "0x1" };
+    const pocket = {
+      rpc: vi.fn(async (_chain: string, method: string) => {
+        if (method === "eth_getTransactionByHash") return { result: tx, meta: {} };
+        return { result: null, meta: {} };
+      }),
+    };
+
+    const result = await pollTxLookup(
+      pocket as never,
+      "eth",
+      HASH,
+      "eth_getTransactionByHash",
+      { timeoutMs: 1000, pollIntervalMs: 100 },
+    );
+
+    expect(result.result).toEqual(tx);
+    expect(result.pollAttempts).toBe(1);
+    expect(pocket.rpc).toHaveBeenCalledTimes(1);
+  });
+
+  it("polls until transaction appears", async () => {
+    vi.useFakeTimers();
+    const tx = { hash: HASH, blockNumber: "0x1" };
+    let calls = 0;
+    const pocket = {
+      rpc: vi.fn(async (_chain: string, method: string) => {
+        calls += 1;
+        if (method === "eth_getTransactionByHash" && calls >= 3) {
+          return { result: tx, meta: {} };
+        }
+        return { result: null, meta: {} };
+      }),
+    };
+
+    const promise = pollTxLookup(
+      pocket as never,
+      "eth",
+      HASH,
+      "eth_getTransactionByHash",
+      { timeoutMs: 5000, pollIntervalMs: 1000 },
+    );
+
+    await vi.advanceTimersByTimeAsync(2500);
+    const result = await promise;
+
+    expect(result.result).toEqual(tx);
+    expect(result.polled).toBe(true);
+    expect(result.pollAttempts).toBeGreaterThan(1);
+    vi.useRealTimers();
+  });
+
+  it("includes wait time in not-found enrichment after timeout", () => {
+    const enriched = enrichTxLookupOutput("eth_getTransactionByHash", "eth", [HASH], {
+      result: null,
+      polled: true,
+      waitedMs: 60_000,
+      pollAttempts: 30,
+    });
+    expect(enriched.notFound).toMatchObject({ waitedMs: 60_000, pollAttempts: 30 });
+    expect(String(enriched.message)).toContain("after waiting");
   });
 });

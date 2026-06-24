@@ -285,7 +285,7 @@ export const MCP_COMMANDS: McpCommand[] = [
     id: "wallet_connect",
     tool: "wallet_connect",
     label: "Connect wallet",
-    description: "WalletConnect or injected provider",
+    description: "Injected MetaMask provider",
     category: "wallet",
     example: "Connect my wallet",
   },

@@ -1,4 +1,4 @@
-export type AgentEventType = "token" | "tool" | "status" | "result" | "error" | "done";
+export type AgentEventType = "token" | "reasoning" | "tool" | "status" | "result" | "error" | "done";
 
 export interface AgentEvent {
   type: AgentEventType;

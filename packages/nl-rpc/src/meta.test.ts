@@ -16,6 +16,15 @@ describe("matchMetaQuery", () => {
     }
   });
 
+  it("matches greetings without calling the LLM", () => {
+    for (const query of ["hi", "Hello!", "hey there", "good morning"]) {
+      const intent = matchMetaQuery(query);
+      expect(intent?.method).toBe("__assistant_info__");
+      expect(intent?.params[0]).toBe("greeting");
+    }
+    expect(matchMetaQuery("hi what is the latest block")).toBeNull();
+  });
+
   it("does not match blockchain queries", () => {
     expect(matchMetaQuery("latest block on base")).toBeNull();
     expect(matchMetaQuery("balance of 0xabc")).toBeNull();

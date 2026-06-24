@@ -6,17 +6,20 @@ import type { McpServerEntry } from "./mcp-config";
 export const INTENT_MCP_TOOLS = [
   { name: "list_supported_chains", desc: "Discover swap networks" },
   { name: "search_token", desc: "Resolve token address + decimals (required first)" },
-  { name: "get_swap_quote", desc: "Best swap price for token pair" },
+  { name: "convert_token_amount", desc: "Human ↔ atomic amount conversion" },
+  { name: "get_swap_quote", desc: "Best swap price (executionMode: any)" },
+  { name: "get_gasless_swap_quote", desc: "Gasless swap quote (solver pays gas)" },
   { name: "compare_quotes", desc: "Compare multiple swap routes" },
   { name: "get_quote_confirmation", desc: "personal_sign message before prepare_intent" },
-  { name: "prepare_intent", desc: "Lock quote after user confirms (userConfirmed: true)" },
+  { name: "prepare_intent", desc: "Lock quote after user confirms (userConfirmed: true, acknowledgeUserPaidGas for gas routes)" },
   { name: "simulate_intent", desc: "Pre-flight on-chain simulation" },
   { name: "get_signing_instructions", desc: "Wallet signing steps for user" },
+  { name: "sync_permit_signer", desc: "Heal Permit2 wallet mismatch — returns permitSigner" },
   { name: "submit_signed_intent", desc: "Submit after user signs in wallet" },
   { name: "get_intent_status", desc: "Poll until completed or failed" },
 ] as const;
 
-export const INTENT_MCP_AGENT_GUIDE_SUMMARY = `Swap workflow: list_supported_chains → search_token → get_swap_quote → user confirms → get_quote_confirmation → personal_sign → prepare_intent(confirmationSignature) → get_signing_instructions → submit_signed_intent → get_intent_status. Never invent token addresses. Quotes expire in 60s.`;
+export const INTENT_MCP_AGENT_GUIDE_SUMMARY = `Swap workflow: list_supported_chains → search_token → get_swap_quote (or get_gasless_swap_quote) → user confirms → get_quote_confirmation → personal_sign → prepare_intent(confirmationSignature, acknowledgeUserPaidGas if gas route) → get_signing_instructions → sync_permit_signer if Permit2 account differs → submit_signed_intent → get_intent_status. Never invent token addresses. Quotes expire in 60s.`;
 
 export const INTENT_MCP_DEFAULT_REMOTE_URL = "https://mcp.metalift.ai/mcp";
 

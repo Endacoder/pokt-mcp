@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { wantsListChains, inferChain, normalizeQuery, wantsLatestSlot, wantsSolanaBalance } from "./patterns.js";
+import {
+  wantsListChains,
+  inferChain,
+  normalizeQuery,
+  wantsLatestSlot,
+  wantsSolanaBalance,
+} from "./patterns.js";
+import { isAccountAuditQuery } from "./account-audit.js";
 
 describe("patterns", () => {
   it("matches list all pocket chains", () => {
@@ -26,7 +33,6 @@ describe("patterns", () => {
   it("normalizes whitespace", () => {
     expect(normalizeQuery("  List   all   chains  ")).toBe("list all chains");
   });
-});
 
   it("matches solana slot queries", () => {
     expect(wantsLatestSlot("latest slot on solana")).toBe(true);
@@ -37,3 +43,11 @@ describe("patterns", () => {
     const addr = "11111111111111111111111111111112";
     expect(wantsSolanaBalance(`SOL balance of ${addr} on solana`)).toBe(true);
   });
+});
+
+describe("account audit query detection", () => {
+  it("detects security audit phrases", () => {
+    expect(isAccountAuditQuery("audit my wallet")).toBe(true);
+    expect(isAccountAuditQuery("token approvals for 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045")).toBe(true);
+  });
+});

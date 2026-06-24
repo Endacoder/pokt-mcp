@@ -1,10 +1,19 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { TxPreviewResponse } from "../lib/api";
-import { sessionHeaders, ensureSessionToken } from "../lib/session";
+import { previewTransaction, verifySubmittedTransaction, type TxPreviewResponse } from "../lib/api";
+import { ensureWalletNetworkForSwap } from "../lib/wallet-network";
 
 const MAX_SEND_ETH = parseFloat(process.env.NEXT_PUBLIC_MAX_SEND_VALUE_ETH ?? "1.0");
+
+type TxIntentParams = {
+  to?: string;
+  value?: string;
+  data?: string;
+  tokenSymbol?: string;
+  tokenAmount?: string;
+  recipient?: string;
+};
 
 function weiHexToEth(hex: string): string {
   try {
@@ -43,26 +52,39 @@ export function TxConfirmModal({
     to?: string;
     valueNative?: string;
     nativeSymbol?: string;
+    verified?: boolean;
+    pending?: boolean;
   }) => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [txPreview, setTxPreview] = useState<TxPreviewResponse | null>(null);
-  const intent = preview.intent as { params?: Array<{ to?: string; value?: string }> } | undefined;
-  const to = intent?.params?.[0]?.to;
-  const value = intent?.params?.[0]?.value;
-  const valueEth = value ? weiHexToEth(value) : "0";
-  const nearLimit = parseFloat(valueEth) >= MAX_SEND_ETH * 0.9;
+  const intent = preview.intent as { method?: string; chain?: string; params?: TxIntentParams[]; humanSummary?: string } | undefined;
+  const txChain = intent?.chain ?? chain;
+  const txParam = intent?.params?.[0];
+  const isTokenSend = intent?.method === "__token_send__" || Boolean(txParam?.tokenSymbol);
+  const contractTo = txParam?.to;
+  const recipient = isTokenSend ? txParam?.recipient : txParam?.to;
+  const valueEth = !isTokenSend && txParam?.value ? weiHexToEth(txParam.value) : "0";
+  const displayAmount = isTokenSend
+    ? `${txParam?.tokenAmount ?? "?"} ${txParam?.tokenSymbol ?? "TOKEN"}`
+    : `${valueEth} native`;
+  const nearLimit = !isTokenSend && parseFloat(valueEth) >= MAX_SEND_ETH * 0.9;
 
   useEffect(() => {
-    if (walletAddress && to) {
-      previewTransaction(apiUrl, { chain, from: walletAddress, to, value: valueEth })
-        .then(setTxPreview)
-        .catch(() => undefined);
-    }
-  }, [apiUrl, chain, walletAddress, to, valueEth]);
+    if (!walletAddress || !contractTo) return;
+    previewTransaction(apiUrl, {
+      chain: txChain,
+      from: walletAddress,
+      to: contractTo,
+      value: isTokenSend ? "0" : valueEth,
+      data: txParam?.data,
+    })
+      .then(setTxPreview)
+      .catch(() => undefined);
+  }, [apiUrl, txChain, walletAddress, contractTo, isTokenSend, valueEth, txParam?.data]);
 
   async function confirmSend() {
-    if (!walletAddress || !window.ethereum || !to) return;
+    if (!walletAddress || !window.ethereum || !contractTo) return;
     setBusy(true);
     try {
       const previewJson = txPreview;
@@ -72,6 +94,10 @@ export function TxConfirmModal({
       const tx = previewJson.transaction;
       if (!tx) throw new Error("No transaction preview");
 
+      if (tx.chainId && window.ethereum) {
+        await ensureWalletNetworkForSwap(window.ethereum, tx.chainId);
+      }
+
       const hash = (await window.ethereum.request({
         method: "eth_sendTransaction",
         params: [
@@ -79,19 +105,38 @@ export function TxConfirmModal({
             from: tx.from ?? walletAddress,
             to: tx.to,
             value: tx.value,
+            data: tx.data,
             gas: tx.gas,
             maxFeePerGas: tx.maxFeePerGas,
+            maxPriorityFeePerGas: tx.maxPriorityFeePerGas,
             chainId: tx.chainId ? `0x${tx.chainId.toString(16)}` : undefined,
           },
         ],
       })) as string;
+
+      let verified = false;
+      let pending = false;
+      try {
+        const check = await verifySubmittedTransaction(apiUrl, {
+          chain: txChain,
+          txHash: hash,
+          timeoutMs: 20_000,
+        });
+        verified = check.found;
+        pending = check.pending;
+      } catch {
+        /* verification is best-effort */
+      }
+
       onSubmitted({
         hash,
         explorerUrl: previewJson.explorerUrl
           ? `${previewJson.explorerUrl.replace(/\/$/, "")}/tx/${hash}`
           : undefined,
-        to,
-        valueNative: valueEth,
+        to: recipient,
+        valueNative: isTokenSend ? displayAmount : valueEth,
+        verified,
+        pending,
       });
     } catch (err) {
       alert(err instanceof Error ? err.message : String(err));
@@ -106,16 +151,22 @@ export function TxConfirmModal({
         <h2 className="mb-2 text-lg font-semibold text-pocket-foreground">Confirm transaction</h2>
         <div className="space-y-2 text-sm text-pocket-muted">
           <p>
-            <span className="text-pocket-muted">To:</span>{" "}
-            <span className="break-all font-mono text-xs text-pocket-foreground">{to ?? "unknown"}</span>
+            <span className="text-pocket-muted">{isTokenSend ? "Recipient:" : "To:"}</span>{" "}
+            <span className="break-all font-mono text-xs text-pocket-foreground">{recipient ?? "unknown"}</span>
           </p>
+          {isTokenSend && contractTo && (
+            <p>
+              <span className="text-pocket-muted">Token contract:</span>{" "}
+              <span className="break-all font-mono text-xs text-pocket-foreground">{contractTo}</span>
+            </p>
+          )}
           <p>
             <span className="text-pocket-muted">Amount:</span>{" "}
-            <span className="text-pocket-foreground">{valueEth} native</span>
+            <span className="text-pocket-foreground">{displayAmount}</span>
           </p>
           <p>
             <span className="text-pocket-muted">Chain:</span>{" "}
-            <span className="text-pocket-foreground">{chain}</span>
+            <span className="text-pocket-foreground">{txChain}</span>
           </p>
           {txPreview?.estimatedGas && (
             <p>
@@ -164,17 +215,4 @@ function hexToDec(hex: string): string {
   } catch {
     return hex;
   }
-}
-
-async function previewTransaction(
-  apiUrl: string,
-  body: { chain: string; from: string; to: string; value?: string },
-) {
-  await ensureSessionToken(apiUrl);
-  const res = await fetch(`${apiUrl}/wallet/tx/preview`, {
-    method: "POST",
-    headers: sessionHeaders({ "Content-Type": "application/json" }),
-    body: JSON.stringify(body),
-  });
-  return res.json() as Promise<TxPreviewResponse>;
 }

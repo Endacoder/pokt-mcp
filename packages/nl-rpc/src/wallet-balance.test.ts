@@ -11,7 +11,17 @@ describe("isWalletBalanceQuery", () => {
     expect(isWalletBalanceQuery("what is my wallet balance")).toBe(true);
     expect(isWalletBalanceQuery("show my balance")).toBe(true);
     expect(isWalletBalanceQuery("show my balances across chains")).toBe(true);
+    expect(isWalletBalanceQuery("bring up my portfolio")).toBe(true);
+    expect(isWalletBalanceQuery("show my portfolio")).toBe(true);
+    expect(isWalletBalanceQuery("what's in my wallet")).toBe(true);
     expect(isWalletBalanceQuery("balance of 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045")).toBe(false);
+  });
+
+  it("does not treat feature queries as wallet balance", () => {
+    expect(isWalletBalanceQuery("DeFi positions for my wallet")).toBe(false);
+    expect(isWalletBalanceQuery("wallet health for my wallet")).toBe(false);
+    expect(isWalletBalanceQuery("Aave health factor for my wallet")).toBe(false);
+    expect(isWalletBalanceQuery("scan my wallet for scams")).toBe(false);
   });
 });
 
@@ -32,6 +42,24 @@ describe("matchWalletBalanceQuery", () => {
     });
     expect(intent?.method).toBe("__wallet_balances_multi__");
     expect(intent?.params).toEqual(["0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045"]);
+  });
+
+  it("returns multi-chain intent for portfolio query", () => {
+    const intent = matchWalletBalanceQuery("bring up my portfolio", {
+      connectedAddress: "0xb6c95ca2241000facad83ef2b7ce4305bcae1f2f",
+      defaultChain: "eth",
+    });
+    expect(intent?.method).toBe("__wallet_balances_multi__");
+    expect(intent?.humanSummary).toContain("Portfolio");
+  });
+
+  it("returns single-chain portfolio when chain is specified", () => {
+    const intent = matchWalletBalanceQuery("show my portfolio on base", {
+      connectedAddress: "0xb6c95ca2241000facad83ef2b7ce4305bcae1f2f",
+      defaultChain: "eth",
+    });
+    expect(intent?.method).toBe("__wallet_balances__");
+    expect(intent?.params?.[0]).toBe("base");
   });
 
   it("throws when wallet not connected", () => {
