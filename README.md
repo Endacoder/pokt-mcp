@@ -1,4 +1,6 @@
 # pokt-mcp
+**DEMO**
+https://pokt.metalift.ai
 
 **AI & Agents — MCP × Pocket × Natural Language RPC**
 
